@@ -4,7 +4,6 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Code style: Modern](https://img.shields.io/badge/code%20style-modern-brightgreen.svg)](https://www.python.org/)
 [![WikiProject: Pharmacology](https://img.shields.io/badge/WikiProject-Pharmacology-blue.svg)](https://en.wikipedia.org/wiki/Wikipedia:WikiProject_Pharmacology)
 
 ---
@@ -13,7 +12,7 @@
 
 WikiPharm Citation Fixer is a simple CMD tool designed for to streamline the formatting and enhancement of `{{Cite journal}}` templates in Pharmacology Wikipedia articles.
 
-> **⚠️ Warning**: Excessive use of this tool may render [Boghog](https://en.wikipedia.org/wiki/User:Boghog) obsolete
+> **⚠️ Warning**: Excessive use of such tools may render [Boghog](https://en.wikipedia.org/wiki/User:Boghog) obsolete
 
 ---
 
@@ -158,8 +157,3 @@ Contributions are welcome! This tool was developed for WikiProject Pharmacology 
 This project is licensed under the **MIT License**. See [LICENSE](LICENSE) for details.
 
 ---
-
-## Changelog
-
-### Version 1.0
-- Initial release
