@@ -18,9 +18,11 @@ Default modules and their purpose:
 | dates | yes | Normalizes dates to Wikipedia Month/Year or Day Month/Year format. |
 | ids | yes | Adds PMID, PMC, ISSN, S2CID from DOI via CrossRef, NCBI, Semantic Scholar. |
 | spacing | yes | Normalizes pipe and equals spacing (`|param = value`). |
-| archive | yes | Adds archive-url and archive-date for cite web/news via Wayback Machine. |
+| archive | yes | Adds archive-url and archive-date via Wayback Machine (--force-archive extends to all types; --create-archive submits new URLs). Probes URL liveness; detects deprecated archive services (WebCite, Wikiwix). |
 | sort | no | Reorders parameters to Wikipedia standard order. |
+| cleanup | no | Fixes CS1/CS2 maintenance issues: work/journal dedup, year/date conflict, missing/placeholder titles, location w/o publisher, periodical conflicts, work+ISBN, page/pages conflict, deprecated params (month, coauthors), extra text in vol/issue/page, invalid url-status, orphaned access-date/doi-broken-date, empty values, param typos, external links in values, nbsp in values, None values, ISBN validation. |
 | dedup | no | Warns when two citations share the same DOI or PMID. |
+| ref-names | no (yes with --enrich) | Auto-generates ref names from first author surname + year for unnamed or :0/:1 refs. |
 
 Select modules explicitly with `--modules`:
 
@@ -35,13 +37,20 @@ python -m wikifix --modules spacing
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-m, --modules` | expand,authors,dates,ids,spacing,archive | Comma-separated module list |
-| `--enrich` | off | Shorthand for `-m ids,dates,spacing` |
+| `--sort` | off | Reorders parameters to Wikipedia standard order |
+| `--cleanup` | off | Fixes CS1/CS2 maintenance issues (work/journal, year/date) |
+| `--enrich` | off | Full enrichment: adds cleanup, dedup + enables refresh-authors and ref-names |
 | `--dedup` | off | Adds the dedup module |
 | `--author-style` | normal | `normal` (vauthors to last/first) or `vancouver` (last/first to vauthors) |
 | `--refresh-authors` | off | Fetch full given names from CrossRef, OpenAlex, DataCite, PubMed (requires DOI) |
 | `--max-authors` | 6 | Maximum authors before truncating with et al (0 = unlimited) |
 | `--ids` | issn,pmid,pmc,s2cid | Which identifiers to fetch |
 | `-f, --force` | off | Re-fetch all identifiers even if present |
+| `--force-archive` | off | Archive all citation types, not just cite web/news |
+| `--create-archive` | off | Submit unarchived URLs to Wayback Machine to create new snapshots |
+| `--ref-names` | off | Auto-generate ref names from first author surname + year |
+| `--bare` | off | Clear default modules; add each explicitly with --modules etc. |
+| `--no-MODULE` | off | Exclude a module (e.g. --no-spacing, --no-cleanup) |
 | `-i, --input` | from.txt | Input wikitext file |
 | `-o, --output` | to.txt | Output file |
 

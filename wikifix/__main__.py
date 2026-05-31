@@ -25,6 +25,7 @@ from wikifix import (
     SpacingModule,
     SortModule,
     DedupModule,
+    CleanupModule,
     ExpandModule,
     ArchiveModule,
 )
@@ -38,6 +39,7 @@ MODULE_REGISTRY = {
     "sort": SortModule,
     "dedup": DedupModule,
     "archive": ArchiveModule,
+    "cleanup": CleanupModule,
 }
 
 
@@ -49,18 +51,31 @@ def build_argparser() -> argparse.ArgumentParser:
         epilog=(
             "Examples:\n"
             "  python -m wikifix                         # default: expand + format + archive\n"
-            "  python -m wikifix --enrich                # ID enrichment + dates + spacing only\n"
+            "  python -m wikifix --enrich                # sort + cleanup + dedup + refresh authors\n"
             "  python -m wikifix --dedup                 # detect duplicate citations\n"
             "  python -m wikifix --modules spacing       # whitespace only\n"
             "  python -m wikifix --modules authors,sort  # convert + sort authors\n"
             "  python -m wikifix --force --ids issn,pmid\n"
+            "  python -m wikifix --force-archive         # archive all template types\n"
+            "  python -m wikifix --ref-names             # auto-name unnamed refs\n"
+            "  python -m wikifix --no-spacing            # exclude spacing from defaults\n"
             "  python -m wikifix --list-modules\n"
         ),
     )
     p.add_argument(
         "--enrich",
         action="store_true",
-        help="Shorthand: ID enrichment + spacing only (overrides --modules)",
+        help="Full enrichment: sort + cleanup + dedup + refresh authors",
+    )
+    p.add_argument(
+        "--sort",
+        action="store_true",
+        help="Reorder parameters to Wikipedia standard order (adds sort module)",
+    )
+    p.add_argument(
+        "--cleanup",
+        action="store_true",
+        help="Fix CS1/CS2 maintenance issues (adds cleanup module)",
     )
     p.add_argument(
         "--dedup",
@@ -99,7 +114,17 @@ def build_argparser() -> argparse.ArgumentParser:
         "--force",
         "-f",
         action="store_true",
-        help="Force-refresh mode (re-fetch all identifiers)",
+        help="Force-refresh: re-fetch metadata and all identifiers",
+    )
+    p.add_argument(
+        "--force-archive",
+        action="store_true",
+        help="Archive all citation types (not just cite web/news)",
+    )
+    p.add_argument(
+        "--create-archive",
+        action="store_true",
+        help="Submit unarchived URLs to Wayback Machine to create new snapshots",
     )
     p.add_argument(
         "--input",
@@ -118,6 +143,24 @@ def build_argparser() -> argparse.ArgumentParser:
         action="store_true",
         help="List available modules and exit",
     )
+    p.add_argument(
+        "--ref-names",
+        action="store_true",
+        help="Auto-generate ref names from first author surname + year",
+    )
+    p.add_argument(
+        "--bare",
+        action="store_true",
+        help="Start with no default modules; explicitly add each with --modules, --sort, etc.",
+    )
+    # Dynamic --no-MODULE flags for all registered modules
+    for name in MODULE_REGISTRY:
+        p.add_argument(
+            f"--no-{name}",
+            action="store_true",
+            dest=f"no_{name.replace('-', '_')}",
+            help=f"Exclude {name} module from the pipeline",
+        )
     return p
 
 
@@ -133,13 +176,31 @@ def main():
         sys.exit(0)
 
     # Resolve modules
+    extra = []
+    if args.bare:
+        args.modules = ""  # clear defaults, start from empty
+    if args.sort:
+        extra.append("sort")
+    if args.dedup:
+        extra.append("dedup")
+    if args.cleanup:
+        extra.append("cleanup")
     if args.enrich:
-        module_source = "ids,dates,spacing"
-    elif args.dedup:
-        module_source = f"{args.modules},dedup"
+        module_source = f"{args.modules},cleanup,dedup"
+        args.refresh_authors = True
+        args.ref_names = True
+    elif extra:
+        module_source = f"{args.modules},{','.join(extra)}"
     else:
         module_source = args.modules
     module_names = [m.strip() for m in module_source.split(",") if m.strip()]
+
+    # Apply --no-MODULE exclusions
+    for name in MODULE_REGISTRY:
+        attr = f"no_{name.replace('-', '_')}"
+        if getattr(args, attr, False):
+            module_names = [n for n in module_names if n != name]
+
     unknown = set(module_names) - set(MODULE_REGISTRY)
     if unknown:
         print(f"ERROR: Unknown module(s): {', '.join(sorted(unknown))}")
@@ -157,6 +218,9 @@ def main():
         refresh_authors=args.refresh_authors,
         max_authors=args.max_authors,
         ids_to_fetch=ids_to_fetch,
+        force_archive_all=args.force_archive,
+        create_archive=args.create_archive,
+        ref_names=args.ref_names,
     )
 
     infile = Path(args.input)

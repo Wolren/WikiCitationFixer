@@ -13,36 +13,41 @@ from wikifix.config import ProcessingResult
 
 
 # Priority order — lower number = earlier position
+# Based on the full parameter set documented at Template:Cite journal
 _PRIORITY = {
+    # Authors
     "vauthors": 10,
     "last": 20,
     "first": 21,
     "author-link": 22,
-    "author-mask": 23,
-    "display-authors": 24,
+    "display-authors": 23,
+    "author-mask": 24,
     "author": 25,
-    "collaboration": 30,
-    "name-list-style": 31,
-    "translator-last": 40,
-    "translator-first": 41,
-    "translator-link": 42,
+    "collaboration": 26,
+    # Date
     "df": 50,
     "date": 51,
     "year": 52,
     "orig-date": 53,
+    "location": 55,
+    "publication-place": 55,
+    # Editors
     "veditors": 60,
     "editor-last": 61,
     "editor-first": 62,
     "editor-link": 63,
     "display-editors": 64,
-    "location": 70,
+    "editor-mask": 65,
+    # Title
     "title": 80,
     "script-title": 81,
     "title-link": 82,
+    # URL
     "url": 90,
     "url-access": 91,
     "trans-title": 92,
     "format": 93,
+    # Work
     "department": 100,
     "journal": 101,
     "website": 102,
@@ -50,74 +55,118 @@ _PRIORITY = {
     "newspaper": 104,
     "magazine": 105,
     "encyclopedia": 106,
+    "script-journal": 107,
+    "trans-journal": 108,
+    # Type, series, language
     "type": 110,
     "series": 111,
     "language": 112,
+    # Volume, issue
     "volume": 120,
     "issue": 121,
     "article-number": 122,
-    "edition": 130,
-    "publication-place": 131,
-    "publisher": 132,
-    "publication-date": 133,
-    "page": 140,
-    "pages": 141,
-    "at": 142,
-    "arxiv": 150,
-    "asin": 151,
-    "bibcode": 152,
-    "biorxiv": 153,
-    "citeseerx": 154,
-    "doi": 155,
-    "eissn": 156,
-    "hdl": 157,
-    "isbn": 158,
-    "ismn": 159,
-    "issn": 160,
-    "jstor": 161,
-    "lccn": 162,
-    "medrxiv": 163,
-    "mr": 164,
-    "oclc": 165,
-    "ol": 166,
-    "osti": 167,
-    "pmc": 168,
-    "pmid": 169,
-    "rfc": 170,
-    "s2cid": 171,
-    "ssrn": 172,
-    "zbl": 173,
-    "id": 174,
-    "url-status": 180,
-    "archive-url": 181,
-    "archive-format": 182,
-    "archive-date": 183,
-    "access-date": 190,
-    "via": 191,
-    "agency": 192,
-    "quote": 200,
-    "script-quote": 201,
-    "trans-quote": 202,
-    "quote-page": 203,
-    "quote-pages": 204,
-    "others": 210,
-    "mode": 211,
-    "ref": 212,
-    "postscript": 213,
+    "number": 122,
+    # Interviewers
+    "interviewer-last": 130,
+    "interviewer-first": 131,
+    "interviewer-link": 132,
+    # Translators
+    "translator-last": 140,
+    "translator-first": 141,
+    "translator-link": 142,
+    # Others, name-list-style
+    "others": 150,
+    "name-list-style": 151,
+    # Edition, publisher
+    "edition": 160,
+    "publisher": 161,
+    "publication-date": 162,
+    # Time
+    "minutes": 170,
+    "time-caption": 171,
+    "time": 172,
+    # Pages
+    "page": 180,
+    "pages": 181,
+    "at": 182,
+    "no-pp": 183,
+    # Identifiers
+    "arxiv": 190,
+    "asin": 191,
+    "bibcode": 192,
+    "biorxiv": 193,
+    "citeseerx": 194,
+    "doi": 195,
+    "doi-access": 195,
+    "doi-broken-date": 195,
+    "eissn": 196,
+    "hdl": 197,
+    "isbn": 198,
+    "ismn": 199,
+    "issn": 200,
+    "jstor": 201,
+    "lccn": 202,
+    "medrxiv": 203,
+    "mr": 204,
+    "oclc": 205,
+    "ol": 206,
+    "osti": 207,
+    "pmc": 208,
+    "pmc-embargo-date": 208,
+    "pmid": 209,
+    "rfc": 210,
+    "sbn": 211,
+    "ssrn": 212,
+    "s2cid": 213,
+    "zbl": 214,
+    "id": 215,
+    # Archive
+    "url-status": 220,
+    "archive-url": 221,
+    "archive-format": 222,
+    "archive-date": 223,
+    # Access
+    "access-date": 230,
+    "via": 231,
+    "agency": 232,
+    # Quote
+    "quote-page": 240,
+    "quote-pages": 241,
+    "quote": 242,
+    "script-quote": 243,
+    "trans-quote": 244,
+    # Misc
+    "mode": 250,
+    "ref": 251,
+    "postscript": 252,
 }
 
-_NUMBERED_BASES = {
-    "last",
-    "first",
-    "author-link",
-    "author-mask",
-    "translator-last",
-    "translator-first",
-    "translator-link",
-    "editor-last",
-    "editor-first",
-    "editor-link",
+# Numbered parameter groups: (sort_group_priority, sub_order_within_number)
+# Keys are the base name (without number suffix).
+# These groups interleave by number: last1, first1, link1, last2, first2, link2, ...
+_NUM_GROUP = {
+    "last": (20, 1),
+    "first": (20, 2),
+    "author-link": (20, 3),
+    "editor-last": (61, 1),
+    "editor-first": (61, 2),
+    "editor-link": (61, 3),
+    "translator-last": (140, 1),
+    "translator-first": (140, 2),
+    "translator-link": (140, 3),
+    "interviewer-last": (130, 1),
+    "interviewer-first": (130, 2),
+    "interviewer-link": (130, 3),
 }
+
+_NUMBERED_BASES = (
+    set(_NUM_GROUP.keys())
+    - {
+        "display-interviewers",
+        "display-translators",
+        "display-editors",
+    }
+) | {"author-mask", "editor-mask"}
 
 
 def _parse_param_name(name: str):
@@ -132,10 +181,20 @@ def _parse_param_name(name: str):
 
 
 def _sort_key(param_name: str):
-    """Produce a sort tuple for a parameter name."""
+    """Produce a sort tuple for a parameter name.
+
+    Numbered parameters within the same group (e.g. last/first/author-link)
+    are interleaved by number: last1, first1, author-link1, last2, first2, ...
+    Unnumbered parameters sort after all numbered entries of their group.
+    """
     base, num = _parse_param_name(param_name)
+    group = _NUM_GROUP.get(base)
+    if group and num > 0:
+        # Numbered param: sort within its group by number, then by sub-order
+        return (group[0], 0, num, group[1])
+    # Unnumbered param: use its direct priority
     priority = _PRIORITY.get(base, 999)
-    return (priority, num if num else 0, param_name)
+    return (priority, 1, 0, 0)
 
 
 class SortModule(CitationModule):
@@ -197,7 +256,7 @@ class SortModule(CitationModule):
         params.sort(key=lambda p: _sort_key(p[2]))
 
         # Rebuild
-        sorted_body = "".join(f"| {p[2]} = {p[3]}" for p in params)
+        sorted_body = " ".join(f"| {p[2]} = {p[3]}" for p in params)
         text = prefix + sorted_body
 
         return ProcessingResult(text=text, changes={"sort": text != start})

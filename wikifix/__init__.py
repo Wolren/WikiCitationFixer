@@ -30,6 +30,7 @@ from wikifix.modules.authors import AuthorModule
 from wikifix.modules.dates import DateModule
 from wikifix.modules.ids import IdEnrichmentModule
 from wikifix.modules.spacing import SpacingModule
+from wikifix.modules.cleanup import CleanupModule
 from wikifix.modules.dedup import DedupModule
 from wikifix.modules.sort import SortModule
 from wikifix.modules.expand import ExpandModule

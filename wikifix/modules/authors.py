@@ -8,6 +8,12 @@ Supports two directions:
 The direction is controlled by the ``author_style`` context key:
     ``"normal"`` (default) → expand vauthors into last/first pairs
     ``"vancouver"``        → collapse last/first into a single vauthors field
+
+Diagnostic-only checks (flag issues without modifying):
+    - Multiple names in a single |lastN=|firstN= field
+    - Numeric author names (OCLC import artifacts)
+    - Generic/placeholder author names
+    - |others= duplicating author/editor names
 """
 
 import re
@@ -21,6 +27,31 @@ from wikifix.config import ProcessingResult
 def _param_re(name: str) -> str:
     """Return regex for ``| name = value`` with optional whitespace."""
     return rf"\|\s*{name}\s*=\s*([^\|}}]+)"
+
+
+# Generic/placeholder names that should be flagged
+_GENERIC_NAMES = {
+    "anonymous",
+    "anon",
+    "author",
+    "authors",
+    "editor",
+    "editors",
+    "translator",
+    "translators",
+    "unknown",
+    "n/a",
+    "na",
+    "none",
+    "not applicable",
+    "placeholder",
+    "to be announced",
+    "tba",
+    "tbd",
+}
+
+# Separators that indicate multiple names crammed into one field
+_MULTI_NAME_SEP = re.compile(r";\s*|\s+and\s+|\s*&\s*")
 
 
 class AuthorModule(CitationModule):
@@ -200,7 +231,7 @@ class AuthorModule(CitationModule):
                 if full_given and len(full_given) > len(fn):
                     text = re.sub(
                         _param_re(fk),
-                        lambda m, v=re.escape(full_given): f"| {fk} = {v}",
+                        lambda m: f"| {fk} = {full_given}",
                         text,
                     )
                     updated = True
@@ -277,5 +308,47 @@ class AuthorModule(CitationModule):
                 if new_text != text:
                     text = new_text
                     changes["authors"] = True
+
+        # --- Diagnostic-only checks (flag without modifying) ---
+
+        # 1. Multiple names in a single field
+        if not changes.get("multi-name-field"):
+            for m in re.finditer(_param_re(r"(?:last|first)\d*"), text):
+                val = m.group(1).strip()
+                if _MULTI_NAME_SEP.search(val):
+                    changes["multi-name-field"] = True
+                    break
+
+        # 2. Numeric author names
+        if not changes.get("numeric-name"):
+            for m in re.finditer(_param_re(r"last\d*"), text):
+                val = m.group(1).strip()
+                if val.isdigit():
+                    changes["numeric-name"] = True
+                    break
+
+        # 3. Generic/placeholder author names
+        if not changes.get("generic-name"):
+            for m in re.finditer(_param_re(r"(?:last|first)\d*"), text):
+                val = m.group(1).strip().lower()
+                if val in _GENERIC_NAMES:
+                    changes["generic-name"] = True
+                    break
+
+        # 4. |others= duplicating author names
+        if not changes.get("others-duplicate"):
+            others_m = re.search(_param_re("others"), text)
+            if others_m:
+                others_val = others_m.group(1).lower()
+                # Collect all author/editor/translator names from the template
+                seen = set()
+                for m in re.finditer(
+                    _param_re(r"(?:last|first|author|editor|translator)\d*"), text
+                ):
+                    name = m.group(1).strip().lower()
+                    if name:
+                        seen.add(name)
+                if seen and any(n in others_val for n in seen if len(n) > 2):
+                    changes["others-duplicate"] = True
 
         return ProcessingResult(text=text, changes=changes)

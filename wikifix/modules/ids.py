@@ -24,7 +24,7 @@ class IdEnrichmentModule(CitationModule):
     description = "Enrich citations with PMID, PMC, ISSN, S2CID via DOI"
 
     def process(self, text: str, context: dict) -> ProcessingResult:
-        changes = {k: False for k in ("issn", "pmid", "pmc", "s2cid")}
+        changes = {k: False for k in ("issn", "pmid", "pmc", "s2cid", "doi-access")}
         api = context.get("api")
         mode: Mode = context.get("mode", Mode.INCREMENTAL)
         wanted: Set[str] = set(
@@ -40,19 +40,35 @@ class IdEnrichmentModule(CitationModule):
             return ProcessingResult(text=text, changes=changes)
         doi = doi_m.group(1).strip()
 
+        # --- doi-access=free (OA indicator) ---
+        has_doi_access = bool(re.search(r"\|\s*doi-access\s*=", text))
+        if not has_doi_access and api.doi_is_oa(doi):
+            text += " |doi-access=free"
+            changes["doi-access"] = True
+            print("    + Added doi-access=free (OA)")
+
         # --- ISSN ---
         if "issn" in wanted:
-            has = bool(re.search(r"\|\s*issn\s*=", text))
-            if mode == Mode.FORCE_REFRESH and has:
-                text = re.sub(r"\|\s*issn\s*=[^\|}]+", "", text)
-                has = False
-            if not has:
-                issn = api.doi_to_issn(doi)
-                if issn:
-                    text += f" |issn={issn}"
-                    changes["issn"] = True
-                    action = "Updated" if mode == Mode.FORCE_REFRESH else "Added"
-                    print(f"    + {action} ISSN {issn}")
+            # Only add ISSN for journal-type templates (cite journal, citation)
+            # to avoid linking book/website ISSNs that CrossRef may return
+            # for non-journal containers (e.g. book series, reference works).
+            template_type = context.get("template_type", "")
+            t = template_type.lower()
+            can_use_issn = t in ("citation",) or t.startswith("cite journal")
+            if not can_use_issn:
+                changes.pop("issn", None)
+            else:
+                has = bool(re.search(r"\|\s*issn\s*=", text))
+                if mode == Mode.FORCE_REFRESH and has:
+                    text = re.sub(r"\|\s*issn\s*=[^\|}]+", "", text)
+                    has = False
+                if not has:
+                    issn = api.doi_to_issn(doi)
+                    if issn:
+                        text += f" |issn={issn}"
+                        changes["issn"] = True
+                        action = "Updated" if mode == Mode.FORCE_REFRESH else "Added"
+                        print(f"    + {action} ISSN {issn}")
 
         # --- PMID ---
         pmid = None

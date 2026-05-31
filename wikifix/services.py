@@ -86,6 +86,17 @@ class ApiClient:
             return issns[0] if issns else None
         return None
 
+    def doi_is_oa(self, doi: str) -> bool:
+        """Check if a DOI is open-access via CrossRef license metadata."""
+        msg = self.fetch_crossref(doi)
+        if not msg:
+            return False
+        for lic in msg.get("license", []):
+            url = lic.get("URL", "")
+            if "creativecommons" in url.lower():
+                return True
+        return False
+
     def doi_to_authors(self, doi: str) -> list:
         """Fetch full author names from CrossRef. Returns [(family, given), ...]."""
         msg = self.fetch_crossref(doi)
@@ -325,12 +336,33 @@ class ApiClient:
                 closest = snaps.get("closest", {})
                 if closest.get("available"):
                     archive_url = closest["url"]
-                    ts = closest["timestamp"]
-                    date_str = ts[:10]  # YYYY-MM-DD
+                    ts = closest["timestamp"]  # YYYYMMDDHHMMSS
+                    date_str = f"{ts[:4]}-{ts[4:6]}-{ts[6:8]}"
                     return (archive_url, date_str)
         except Exception as e:
             print(f"  Wayback Machine check failed for {url}: {e}")
         return None
+
+    def save_wayback(self, url: str) -> bool:
+        """Request Wayback Machine to create a new snapshot of *url*.
+
+        Returns True if the save request was accepted (2xx status).
+        The snapshot may take a few seconds to become available.
+        """
+        self._rate_limit(self.config.wayback_delay * 5)
+        url = self.clean_url(url)
+        try:
+            resp = requests.get(
+                f"https://web.archive.org/save/{url}",
+                timeout=60,
+                allow_redirects=True,
+            )
+            if resp.status_code == 429:
+                print(f"    Wayback rate-limited (429), skipping save")
+            return resp.ok
+        except Exception as e:
+            print(f"  Wayback Machine save failed for {url}: {e}")
+        return False
 
     # ---- OpenAlex ----
 

@@ -30,9 +30,11 @@ def _has_field(text: str, field: str) -> bool:
     return bool(re.search(rf"\|\s*{field}\s*=", text))
 
 
-def _add_field(text: str, name: str, value: str) -> str:
+def _add_field(text: str, name: str, value: str, force: bool = False) -> str:
     if _has_field(text, name):
-        return text
+        if not force:
+            return text
+        text = re.sub(rf"\|\s*{re.escape(name)}\s*=[^\|]+", "", text)
     return text + f" |{name}={value}"
 
 
@@ -118,40 +120,68 @@ class ExpandModule(CitationModule):
     name = "expand"
     description = "Expand citations with metadata from DOI/PMID/arXiv/ISBN"
 
-    def _expand_from_doi(self, text: str, doi: str, api) -> str:
+    @staticmethod
+    def _can_use_journal(template_type: str) -> bool:
+        """journal is only valid for cite journal and CS2 citation templates."""
+        t = template_type.lower()
+        return t in ("citation",) or t.startswith("cite journal")
+
+    @staticmethod
+    def _container_field(template_type: str) -> str:
+        """Return the appropriate container field for the template type."""
+        t = template_type.lower()
+        if t.startswith("cite journal") or t == "citation":
+            return "journal"
+        if t.startswith("cite web"):
+            return "website"
+        if t.startswith("cite news"):
+            return "newspaper"
+        if t.startswith("cite magazine"):
+            return "magazine"
+        return "journal"  # fallback
+
+    def _expand_from_doi(
+        self, text: str, doi: str, api, template_type: str, force: bool = False
+    ) -> str:
         """Try CrossRef then Europe PMC to fill fields via DOI."""
         msg = api.fetch_crossref(doi)
         if msg:
-            if not _has_field(text, "title"):
+            if force or not _has_field(text, "title"):
                 title = msg.get("title", [None])[0]
                 if title:
-                    text = _add_field(text, "title", html.unescape(title))
+                    text = _add_field(text, "title", html.unescape(title), force=force)
 
-            if not _has_field(text, "journal"):
+            if force or not _has_field(text, "journal"):
                 container = (msg.get("container-title") or [None])[0]
                 if container:
-                    for alias in FIELD_ALIASES["journal"]:
-                        if _has_field(text, alias):
-                            break
-                    else:
-                        text = _add_field(text, "journal", _clean_journal(container))
+                    field = self._container_field(template_type)
+                    if field != "journal" or self._can_use_journal(template_type):
+                        text = _add_field(
+                            text, field, _clean_journal(container), force=force
+                        )
 
-            if not _has_field(text, "volume"):
-                vol = msg.get("volume")
-                if vol:
-                    text = _add_field(text, "volume", str(vol))
+            if not template_type.lower().startswith("cite book"):
+                if force or not _has_field(text, "volume"):
+                    vol = msg.get("volume")
+                    if vol:
+                        text = _add_field(text, "volume", str(vol), force=force)
 
-            if not _has_field(text, "issue") and not _has_field(text, "number"):
+            if (force or not _has_field(text, "issue")) and not _has_field(
+                text, "number"
+            ):
                 issue = msg.get("issue")
                 if issue:
-                    text = _add_field(text, "issue", str(issue))
+                    text = _add_field(text, "issue", str(issue), force=force)
 
-            if not _has_field(text, "page") and not _has_field(text, "pages"):
+            if _has_field(text, "page") and _has_field(text, "pages"):
+                pass  # both already present, don't touch
+            elif force or not (_has_field(text, "page") or _has_field(text, "pages")):
                 pages = msg.get("page")
                 if pages:
-                    text = _add_field(text, "pages", pages)
+                    fld = "pages" if not _has_field(text, "page") else "page"
+                    text = _add_field(text, fld, pages, force=force)
 
-            if not _has_field(text, "date") and not _has_field(text, "year"):
+            if (force or not _has_field(text, "date")) and not _has_field(text, "year"):
                 date_parts = msg.get("published-print", {}).get("date-parts", [None])[0]
                 if not date_parts:
                     date_parts = msg.get("published-online", {}).get(
@@ -162,117 +192,176 @@ class ExpandModule(CitationModule):
                 if date_parts:
                     date_str = _format_date_from_parts(date_parts)
                     if date_str:
-                        text = _add_field(text, "date", date_str)
+                        text = _add_field(text, "date", date_str, force=force)
 
-            if not _has_field(text, "publisher"):
-                pub = msg.get("publisher")
-                if pub:
-                    text = _add_field(text, "publisher", _clean_publisher(pub))
+            if force or not _has_field(text, "publisher"):
+                t = template_type.lower()
+                if not t.startswith("cite journal"):
+                    pub = msg.get("publisher")
+                    if pub:
+                        text = _add_field(
+                            text, "publisher", _clean_publisher(pub), force=force
+                        )
 
         # Try Europe PMC as supplement
         epmc = api.fetch_europepmc(doi)
         if epmc:
-            if not _has_field(text, "title") and epmc.get("title"):
-                text = _add_field(text, "title", html.unescape(epmc["title"]))
-            if not _has_field(text, "journal"):
+            if (force or not _has_field(text, "title")) and epmc.get("title"):
+                text = _add_field(
+                    text, "title", html.unescape(epmc["title"]), force=force
+                )
+            j_field = self._container_field(template_type)
+            if force or not _has_field(text, j_field):
                 j = epmc.get("journalTitle") or epmc.get("bookOrReportDetails", {}).get(
                     "publisher"
                 )
-                if j:
-                    text = _add_field(text, "journal", _clean_journal(j))
-            if not _has_field(text, "volume") and epmc.get("volume"):
-                text = _add_field(text, "volume", str(epmc["volume"]))
-            if not _has_field(text, "issue") and epmc.get("issue"):
-                text = _add_field(text, "issue", str(epmc["issue"]))
+                if j and (j_field != "journal" or self._can_use_journal(template_type)):
+                    text = _add_field(text, j_field, _clean_journal(j), force=force)
+            if not template_type.lower().startswith("cite book"):
+                if (force or not _has_field(text, "volume")) and epmc.get("volume"):
+                    text = _add_field(text, "volume", str(epmc["volume"]), force=force)
+            if (force or not _has_field(text, "issue")) and epmc.get("issue"):
+                text = _add_field(text, "issue", str(epmc["issue"]), force=force)
             if not _has_field(text, "page") and not _has_field(text, "pages"):
                 p = epmc.get("pageInfo")
                 if p:
-                    text = _add_field(text, "pages", p)
-            if not _has_field(text, "date"):
+                    text = _add_field(text, "pages", p, force=force)
+            if force or not _has_field(text, "date"):
                 epmc_date = epmc.get("firstPublicationDate") or epmc.get("pubYear")
                 if epmc_date:
-                    text = _add_field(text, "date", _format_date_string(str(epmc_date)))
-            if not _has_field(text, "pmid"):
+                    text = _add_field(
+                        text, "date", _format_date_string(str(epmc_date)), force=force
+                    )
+            if force or not _has_field(text, "pmid"):
                 pid = epmc.get("source") == "MED" and epmc.get("id")
                 if pid:
-                    text = _add_field(text, "pmid", str(pid))
-            if not _has_field(text, "pmc"):
+                    text = _add_field(text, "pmid", str(pid), force=force)
+            if force or not _has_field(text, "pmc"):
                 pmcid = epmc.get("pmcid") or (
                     epmc.get("id") if epmc.get("source") == "PMC" else None
                 )
                 if pmcid:
-                    text = _add_field(text, "pmc", str(pmcid).removeprefix("PMC"))
+                    text = _add_field(
+                        text, "pmc", str(pmcid).removeprefix("PMC"), force=force
+                    )
 
         return text
 
-    def _expand_from_pmid(self, text: str, pmid: str, api) -> str:
+    def _expand_from_pmid(
+        self, text: str, pmid: str, api, template_type: str, force: bool = False
+    ) -> str:
         """Fill fields from Europe PMC by PMID."""
         epmc = api.pmid_to_metadata_europepmc(pmid)
         if not epmc:
             return text
-        if not _has_field(text, "title") and epmc.get("title"):
-            text = _add_field(text, "title", html.unescape(epmc["title"]))
-        if not _has_field(text, "journal"):
+        if (force or not _has_field(text, "title")) and epmc.get("title"):
+            text = _add_field(text, "title", html.unescape(epmc["title"]), force=force)
+        j_field = self._container_field(template_type)
+        if force or not _has_field(text, j_field):
             j = epmc.get("journalTitle")
-            if j:
-                text = _add_field(text, "journal", _clean_journal(j))
-        if not _has_field(text, "volume") and epmc.get("volume"):
-            text = _add_field(text, "volume", str(epmc["volume"]))
-        if not _has_field(text, "issue") and epmc.get("issue"):
-            text = _add_field(text, "issue", str(epmc["issue"]))
+            if j and (j_field != "journal" or self._can_use_journal(template_type)):
+                text = _add_field(text, j_field, _clean_journal(j), force=force)
+        if not template_type.lower().startswith("cite book"):
+            if (force or not _has_field(text, "volume")) and epmc.get("volume"):
+                text = _add_field(text, "volume", str(epmc["volume"]), force=force)
+        if (force or not _has_field(text, "issue")) and epmc.get("issue"):
+            text = _add_field(text, "issue", str(epmc["issue"]), force=force)
         if not _has_field(text, "page") and not _has_field(text, "pages"):
             p = epmc.get("pageInfo")
             if p:
-                text = _add_field(text, "pages", p)
-        if not _has_field(text, "date"):
+                text = _add_field(text, "pages", p, force=force)
+        if force or not _has_field(text, "date"):
             d = epmc.get("firstPublicationDate") or epmc.get("pubYear")
             if d:
-                text = _add_field(text, "date", _format_date_string(str(d)))
+                text = _add_field(
+                    text, "date", _format_date_string(str(d)), force=force
+                )
         return text
 
-    def _expand_from_arxiv(self, text: str, arxiv_id: str, api) -> str:
+    def _expand_from_arxiv(
+        self, text: str, arxiv_id: str, api, force: bool = False
+    ) -> str:
         """Fill fields from arXiv API."""
         data = api.fetch_arxiv(arxiv_id)
         if not data:
             return text
-        if not _has_field(text, "title") and data.get("title"):
-            text = _add_field(text, "title", data["title"])
-        if not _has_field(text, "date") and data.get("date"):
-            text = _add_field(text, "date", data["date"])
-        if not _has_field(text, "doi") and data.get("doi"):
-            text = _add_field(text, "doi", data["doi"])
+        if force or not _has_field(text, "title"):
+            if data.get("title"):
+                text = _add_field(text, "title", data["title"], force=force)
+        if force or not _has_field(text, "date"):
+            if data.get("date"):
+                text = _add_field(text, "date", data["date"], force=force)
+        if force or not _has_field(text, "doi"):
+            if data.get("doi"):
+                text = _add_field(text, "doi", data["doi"], force=force)
         return text
 
-    def _expand_from_isbn(self, text: str, isbn: str, api) -> str:
+    def _expand_from_isbn(self, text: str, isbn: str, api, force: bool = False) -> str:
         """Fill fields from Open Library by ISBN."""
         data = api.fetch_openlibrary(isbn)
         if not data:
             return text
-        if not _has_field(text, "title") and data.get("title"):
-            text = _add_field(text, "title", data["title"])
-        if not _has_field(text, "date") and data.get("date"):
-            text = _add_field(text, "date", data["date"])
-        if not _has_field(text, "publisher") and data.get("publisher"):
-            text = _add_field(text, "publisher", _clean_publisher(data["publisher"]))
+        if force or not _has_field(text, "title"):
+            if data.get("title"):
+                text = _add_field(text, "title", data["title"], force=force)
+        if force or not _has_field(text, "date"):
+            if data.get("date"):
+                text = _add_field(text, "date", data["date"], force=force)
+        if force or not _has_field(text, "publisher"):
+            if data.get("publisher"):
+                text = _add_field(
+                    text, "publisher", _clean_publisher(data["publisher"]), force=force
+                )
         return text
 
     def process(self, text: str, context: dict) -> ProcessingResult:
         start = text
         api = context.get("api")
+        mode: Mode = context.get("mode", Mode.INCREMENTAL)
         if not api:
             return ProcessingResult(text=text, changes={"expand": False})
 
         doi = context.get("doi")
         pmid = context.get("pmid")
+        template_type = context.get("template_type", "citation")
         arxiv_m = re.search(r"\|\s*arxiv\s*=\s*([^\|}]+)", text)
         arxiv_id = arxiv_m.group(1).strip() if arxiv_m else None
         isbn_m = re.search(r"\|\s*isbn\s*=\s*([^\|}]+)", text)
         isbn = isbn_m.group(1).strip() if isbn_m else None
 
+        # Force-refresh: when a DOI is present, strip all expandable fields
+        # and re-fetch from CrossRef/Europe PMC. Without a DOI there is no
+        # reliable source to re-fetch from, so run incrementally.
+        is_book = template_type.lower().startswith("cite book")
+        if mode == Mode.FORCE_REFRESH and doi:
+            strip_fields = [
+                "title",
+                "journal",
+                "website",
+                "work",
+                "newspaper",
+                "magazine",
+                "issue",
+                "pages",
+                "page",
+                "date",
+                "publisher",
+            ]
+            if not is_book:
+                strip_fields.append("volume")
+            text = re.sub(
+                r"\|\s*(?:" + "|".join(strip_fields) + r")\s*=[^\|]+",
+                "",
+                text,
+            )
+            force = True
+        else:
+            force = False
+
         if doi:
-            text = self._expand_from_doi(text, doi, api)
+            text = self._expand_from_doi(text, doi, api, template_type, force=force)
         if pmid:
-            text = self._expand_from_pmid(text, pmid, api)
+            text = self._expand_from_pmid(text, pmid, api, template_type)
         if arxiv_id:
             text = self._expand_from_arxiv(text, arxiv_id, api)
         if isbn:
