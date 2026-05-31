@@ -36,6 +36,9 @@ ENV/
 *~
 .DS_Store
 
+# Archive (old wikipharm scripts — kept for reference)
+archive/
+
 # Input/Output files
 paste.txt
 paste_corrected.txt

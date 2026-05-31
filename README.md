@@ -1,165 +1,109 @@
-# WikiPharm Citation Fixer
+# WikiCitationFixer
 
-**Automated Wikipedia citation formatting for Pharmacology Wikipedia articles**
+Modular Wikipedia citation fixer for CS1/CS2 templates (cite journal, cite web, cite book, citation, etc.).
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Code style: Modern](https://img.shields.io/badge/code%20style-modern-brightgreen.svg)](https://www.python.org/)
-[![WikiProject: Pharmacology](https://img.shields.io/badge/WikiProject-Pharmacology-blue.svg)](https://en.wikipedia.org/wiki/Wikipedia:WikiProject_Pharmacology)
-
----
-
-## Overview
-
-WikiPharm Citation Fixer is a simple CMD tool designed for to streamline the formatting and enhancement of `{{Cite journal}}` templates in Pharmacology Wikipedia articles.
-
-> **⚠️ Warning**: Excessive use of this tool may render [Boghog](https://en.wikipedia.org/wiki/User:Boghog) obsolete
-
----
-
-## Features
-
-### ✅ Author Formatting
-- Converts `|last=` and `|first=` parameters to compact `|vauthors=` Vancouver format
-- Limits initials to **2 maximum** per author (e.g., "Smith AB" not "Smith ABC")
-- Handles up to 6 authors with "et al" for longer author lists
-
-### 📅 Date Standardization
-- Converts ISO dates (`2024-11-12`) → `November 2024`
-- Removes day from existing dates → `November 12, 2024` → `November 2024`
-- Preserves year-only dates
-
-### 🔍 Metadata Enrichment
-- **ISSN**: Retrieved from CrossRef API using DOI
-- **PMID**: Retrieved from NCBI E-utilities using DOI
-- **PMC**: Retrieved from NCBI PMC ID Converter using PMID
-
-### ⚙️ Two Operating Modes
-1. **Incremental Mode** (default): Only adds missing identifiers
-2. **Force Refresh Mode**: Re-fetches and updates all identifiers from APIs
-
----
-
-## Installation
-
-### Requirements
-- Python 3.10 or higher
-- `requests` library
-
-### Setup
+## Quick start
 
 ```bash
-# Clone the repository
-git clone https://github.com/wolren/wikipharm-citation-fixer.git
-cd wikipharm-citation-fixer
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Run the script
-python wikipharm_fixer.py
+python -m wikifix -i from.txt -o to.txt
 ```
 
----
+Default modules and their purpose:
 
-## Usage
+| Module | Runs by default | What it does |
+|--------|:---------:|------|
+| expand | yes | Fills missing title, journal, volume, issue, pages, date, publisher from DOI (CrossRef, Europe PMC), arXiv ID, or ISBN (Open Library). |
+| authors | yes | Converts between vauthors (Vancouver) and last=/first= (normal) format. Direction: `--author-style normal` or `--author-style vancouver`. |
+| dates | yes | Normalizes dates to Wikipedia Month/Year or Day Month/Year format. |
+| ids | yes | Adds PMID, PMC, ISSN, S2CID from DOI via CrossRef, NCBI, Semantic Scholar. |
+| spacing | yes | Normalizes pipe and equals spacing (`|param = value`). |
+| archive | yes | Adds archive-url and archive-date for cite web/news via Wayback Machine. |
+| sort | no | Reorders parameters to Wikipedia standard order. |
+| dedup | no | Warns when two citations share the same DOI or PMID. |
 
-### Basic Usage (Incremental Mode)
+Select modules explicitly with `--modules`:
 
 ```bash
-python wikipharm_fixer.py
+python -m wikifix --modules authors,sort
+python -m wikifix --modules expand,dates,spacing
+python -m wikifix --modules spacing
 ```
 
-This will:
-1. Read citations from `paste.txt`
-2. Add missing ISSN, PMID, and PMC identifiers
-3. Convert authors to Vancouver format
-4. Fix date formatting
-5. Save fixed citations to `paste_corrected.txt`
+## Options
 
-### Force Refresh Mode
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-m, --modules` | expand,authors,dates,ids,spacing,archive | Comma-separated module list |
+| `--enrich` | off | Shorthand for `-m ids,dates,spacing` |
+| `--dedup` | off | Adds the dedup module |
+| `--author-style` | normal | `normal` (vauthors to last/first) or `vancouver` (last/first to vauthors) |
+| `--refresh-authors` | off | Fetch full given names from CrossRef, OpenAlex, DataCite, PubMed (requires DOI) |
+| `--max-authors` | 6 | Maximum authors before truncating with et al (0 = unlimited) |
+| `--ids` | issn,pmid,pmc,s2cid | Which identifiers to fetch |
+| `-f, --force` | off | Re-fetch all identifiers even if present |
+| `-i, --input` | from.txt | Input wikitext file |
+| `-o, --output` | to.txt | Output file |
+
+## Input and output
 
 ```bash
-python wikipharm_fixer.py --force
+python -m wikifix -i article.txt -o article_fixed.txt
 ```
 
-This will re-fetch **all** identifiers (ISSN, PMID, PMC) even if they already exist in citations, useful for updating outdated or incorrect metadata.
+The input is a Wikipedia wikitext fragment with CS1 or CS2 templates. The output is the same text with citations modified in place.
 
-### Input/Output Files
+## Author names
 
-- **Input**: `paste.txt` (place your Wikipedia wikitext with `{{Cite journal}}` templates here)
-- **Output**: `paste_corrected.txt` (fixed citations will be saved here)
+Default: vauthors initials are used as-is ("Smith JA" becomes last=Smith, first=JA).
 
----
+With `--refresh-authors`, the tool queries CrossRef, OpenAlex, DataCite, and PubMed for full given names and picks the source with the longest names. Requires a DOI.
 
-## Example
+## Modes
 
-### Before
-```wiki
-{{Cite journal|last=Smith|first=John A.|last2=Doe|first2=Jane B. C.|date=2024-11-12|title=Example Article|journal=Nature|volume=500|pages=123-456|doi=10.1038/nature12345}}
-```
+**Incremental** (default): adds only missing fields. Existing identifiers are preserved.
 
-### After
-```wiki
-{{cite journal | vauthors = Smith JA, Doe JB | date = November 2024 | title = Example Article | journal = Nature | volume = 500 | pages = 123-456 | doi = 10.1038/nature12345 | issn = 0028-0836 | pmid = 12345678 | pmc = 9876543}}
-```
+**Force refresh** (`--force`): removes and re-fetches all identifiers. Use after updating a DOI or to refresh stale data.
 
----
+## API sources
+
+| Source | Used for | Auth required |
+|--------|----------|:-------------:|
+| CrossRef | DOI metadata, authors, ISSN | no |
+| NCBI E-utilities | DOI to PMID, authors | no |
+| NCBI PMC ID Converter | PMID to PMC | no |
+| Europe PMC | DOI/PMID full metadata | no |
+| OpenAlex | DOI to authors (full names) | no |
+| DataCite | DOI to authors (full names) | no |
+| Semantic Scholar | DOI to S2CID | no |
+| arXiv API | arXiv ID to metadata | no |
+| Open Library | ISBN to book metadata | no |
+| Wayback Machine | URL to archive snapshot | no |
+
+All API calls are rate-limited with configurable delays. No API keys required.
 
 ## Configuration
 
-`ApiConfig`:
-
 ```python
-@dataclass(frozen=True)
-class ApiConfig:
-    user_agent: str = "WikiPharmCitationFixer/2.0"
-    ncbi_tool: str = "WikiPharmCitationFixer"
-    api_delay: float = 0.34   # NCBI rate limit: ~3 requests/second
-    crossref_delay: float = 0.05  # CrossRef: 50 requests/second
+from wikifix import CitationPipeline, ApiConfig
+
+config = ApiConfig(
+    user_agent="MyTool/1.0",
+    api_delay=0.34,       # NCBI limit
+    crossref_delay=0.05,  # CrossRef limit
+)
+
+pipeline = CitationPipeline(
+    modules=[...],
+    mode=incremental,
+    api_config=config,
+    author_style="normal",
+    refresh_authors=False,
+    max_authors=6,
+    ids_to_fetch=["issn", "pmid", "pmc", "s2cid"],
+)
 ```
----
-
-No email configuration is required for API access.
-
-## API Rate Limiting
-
-The tool respects API rate limits:
-- **NCBI E-utilities**: 3 requests per second
-- **CrossRef**: 50 requests per second (polite pool)
-
----
-
-## Command-Line Options
-
-| Option | Description |
-|--------|-------------|
-| _(none)_ | Incremental mode (default): add missing fields only |
-| `--force`, `-f` | Force refresh mode: re-fetch all identifiers |
-| `force`, `refresh`, `all` | Alternative keywords for force refresh |
-
----
-
-## Contributing
-
-Contributions are welcome! This tool was developed for WikiProject Pharmacology but can be adapted for other Wikipedia projects.
-
-### To contribute:
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/improvement`)
-3. Commit your changes (`git commit -am 'Add new feature'`)
-4. Push to the branch (`git push origin feature/improvement`)
-5. Open a Pull Request
-
----
 
 ## License
 
-This project is licensed under the **MIT License**. See [LICENSE](LICENSE) for details.
-
----
-
-## Changelog
-
-### Version 1.0
-- Initial release
+MIT
