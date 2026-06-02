@@ -6,19 +6,48 @@ citation template found in a Wikipedia wikitext source file.
 """
 
 import re
+import urllib.parse
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Set
 
 from wikifix.base import CitationModule
 from wikifix.config import Mode, ApiConfig, CitationStats
 from wikifix.services import ApiClient
 
 
+_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "are",
+        "at",
+        "by",
+        "for",
+        "from",
+        "in",
+        "is",
+        "it",
+        "of",
+        "on",
+        "or",
+        "that",
+        "the",
+        "this",
+        "to",
+        "was",
+        "with",
+    }
+)
+
+
 class CitationPipeline:
     """Runs a sequence of modules over all cite templates in a file."""
 
     CITATION_RE = re.compile(
-        r"{{(?:[Cc]ite\s+\w+|[Cc]itation)(.*?)}}(?!})",
+        r"{{(?:[Cc]ite\s+\w+|[Cc]itation)"
+        r"((?:[^{}]|{{[^{}]*}})*)"
+        r"}}",
         re.DOTALL,
     )
 
@@ -94,6 +123,9 @@ class CitationPipeline:
 
         stats = CitationStats(total=len(matches))
         ref_renames = {}  # old_name -> new_name
+        used_ref_names: Set[str] = set(
+            m.group(1) for m in re.finditer(r'<ref\s+name\s*=\s*"([^"]*)"', text)
+        )
 
         for idx, match in enumerate(reversed(matches), 1):
             body = match.group(1)
@@ -149,7 +181,14 @@ class CitationPipeline:
 
             # Auto-generate ref name from first author surname + year
             if self.ref_names:
-                text = self._add_ref_name(text, match.start(), body, ref_renames)
+                text = self._add_ref_name(
+                    text,
+                    match.start(),
+                    body,
+                    template_type,
+                    used_ref_names,
+                    ref_renames,
+                )
 
             if any(overall_changes.values()):
                 changed = ", ".join(k for k, v in overall_changes.items() if v)
@@ -184,11 +223,28 @@ class CitationPipeline:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _add_ref_name(text: str, pos: int, body: str, renames: dict) -> str:
+    def _first_word(text: str) -> str | None:
+        """Return the first non-stopword from *text*, stripping wikilinks."""
+        for word in text.split():
+            clean = word.strip("[]")
+            if clean.lower() not in _STOPWORDS:
+                return clean.capitalize()
+        return None
+
+    @staticmethod
+    def _add_ref_name(
+        text: str,
+        pos: int,
+        body: str,
+        template_type: str,
+        used_names: Set[str],
+        renames: dict,
+    ) -> str:
         """Generate a ref name from first author surname + year if missing.
 
         Populates *renames* with ``{old_name: new_name}`` for deferred
         global short-ref replacement.
+        *used_names* tracks every name already assigned to prevent collisions.
         """
         # Find the <ref ...> tag preceding the citation
         prefix = text[:pos]
@@ -229,18 +285,50 @@ class CitationPipeline:
             ref_name = f"{name}{year}"
         elif name:
             ref_name = name
+        elif template_type.lower().startswith("cite web"):
+            # For web citations without author, try work/website/publisher
+            ref_name = None
+            for field in ("work", "website", "publisher"):
+                fm = re.search(rf"\|\s*{field}\s*=\s*([^|]+)", body)
+                if fm:
+                    ref_name = CitationPipeline._first_word(fm.group(1).strip())
+                    if ref_name:
+                        break
+            if not ref_name:
+                # Fall back to domain from URL
+                um = re.search(r"\|\s*url\s*=\s*([^|]+)", body)
+                if um:
+                    domain = urllib.parse.urlparse(um.group(1).strip()).netloc
+                    domain = domain.removeprefix("www.").split(".")[0]
+                    ref_name = domain.capitalize()
+            if not ref_name:
+                # Last resort: title
+                tm = re.search(r"\|\s*title\s*=\s*([^|]+)", body)
+                if tm:
+                    ref_name = CitationPipeline._first_word(tm.group(1).strip())
+            if not ref_name:
+                return text
         else:
-            # Fallback: first word from title
+            # Fallback: first non-stopword from title
             tm = re.search(r"\|\s*title\s*=\s*([^|]+)", body)
             if tm:
-                first = tm.group(1).strip().split()[0]
-                ref_name = first.capitalize()
+                ref_name = CitationPipeline._first_word(tm.group(1).strip())
+                if not ref_name:
+                    return text
             else:
-                return text  # nothing to name from, leave as-is
+                return text
 
         # Wikipedia rejects ref names that are simple integers
         if ref_name.isdigit():
             ref_name = f"ref-{ref_name}"
+
+        # Deduplicate against all existing ref names in the text
+        if ref_name in used_names:
+            suffix = 2
+            while f"{ref_name}-{suffix}" in used_names:
+                suffix += 1
+            ref_name = f"{ref_name}-{suffix}"
+        used_names.add(ref_name)
 
         # Insert name into the <ref> tag
         old_ref = ref_m.group(0)
