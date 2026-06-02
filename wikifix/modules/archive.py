@@ -163,7 +163,7 @@ class ArchiveModule(CitationModule):
 
         text = (
             text
-            + f" |archive-url={archive_url} |archive-date={archive_date} |url-status={url_status}"
+            + f" | archive-url = {archive_url} | archive-date = {archive_date} | url-status = {url_status}"
         )
         action = "Replaced" if mode == Mode.FORCE_REFRESH else "Added"
         print(f"    + {action} archive (from Wayback Machine, status={url_status})")

@@ -166,10 +166,14 @@ class AuthorModule(CitationModule):
 
         authors: List[Tuple[str, str]] = []
         for i in range(1, 13):
-            lk = "last" if i == 1 else f"last{i}"
-            fk = "first" if i == 1 else f"first{i}"
-            lm = re.search(_param_re(lk), text)
-            fm = re.search(_param_re(fk), text)
+            lk = f"last{i}"
+            fk = f"first{i}"
+            lm = re.search(_param_re(lk), text) or (
+                re.search(_param_re("last"), text) if i == 1 else None
+            )
+            fm = re.search(_param_re(fk), text) or (
+                re.search(_param_re("first"), text) if i == 1 else None
+            )
             if lm:
                 authors.append((lm.group(1).strip(), fm.group(1).strip() if fm else ""))
         if not authors:
@@ -185,8 +189,8 @@ class AuthorModule(CitationModule):
         vauthors = ", ".join(formatted) + (", et al" if len(authors) > limit else "")
 
         for i in range(1, 13):
-            lk = "last" if i == 1 else f"last{i}"
-            fk = "first" if i == 1 else f"first{i}"
+            lk = r"last\d?" if i == 1 else f"last{i}"
+            fk = r"first\d?" if i == 1 else f"first{i}"
             text = re.sub(rf"\|\s*{lk}\s*=[^\|}}]+", "", text)
             text = re.sub(rf"\|\s*{fk}\s*=[^\|}}]+", "", text)
         text = re.sub(r"\|\s*\|", "|", text).strip().lstrip("|")
@@ -267,6 +271,7 @@ class AuthorModule(CitationModule):
         return best
 
     def process(self, text: str, context: dict) -> ProcessingResult:
+        original = text
         changes = {"authors": False}
         style = context.get("author_style", "normal")
         refresh = context.get("refresh_authors", False)
@@ -303,11 +308,20 @@ class AuthorModule(CitationModule):
                             changes["authors"] = True
         elif style == "vancouver":
             # Normal → Vancouver
-            if not AuthorModule._VAUTHORS_RE.search(text):
+            if AuthorModule._VAUTHORS_RE.search(text):
+                # Already has vauthors — strip redundant last/first fields
+                for i in range(1, 13):
+                    lk = r"last\d?" if i == 1 else f"last{i}"
+                    fk = r"first\d?" if i == 1 else f"first{i}"
+                    text = re.sub(rf"\|\s*{lk}\s*=[^\|}}]+", "", text)
+                    text = re.sub(rf"\|\s*{fk}\s*=[^\|}}]+", "", text)
+                text = re.sub(r"\|\s*\|", "|", text).strip()
+            else:
                 new_text = self._lastfirst_to_vauthors(text, max_authors=max_authors)
                 if new_text != text:
                     text = new_text
-                    changes["authors"] = True
+            if text != original:
+                changes["authors"] = True
 
         # --- Diagnostic-only checks (flag without modifying) ---
 

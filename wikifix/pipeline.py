@@ -93,6 +93,7 @@ class CitationPipeline:
                 first_seen[key] = m.start()
 
         stats = CitationStats(total=len(matches))
+        ref_renames = {}  # old_name -> new_name
 
         for idx, match in enumerate(reversed(matches), 1):
             body = match.group(1)
@@ -148,11 +149,32 @@ class CitationPipeline:
 
             # Auto-generate ref name from first author surname + year
             if self.ref_names:
-                text = self._add_ref_name(text, match.start(), body)
+                text = self._add_ref_name(text, match.start(), body, ref_renames)
 
             if any(overall_changes.values()):
                 changed = ", ".join(k for k, v in overall_changes.items() if v)
                 print(f"  -> {changed}")
+
+        # Final pass: apply all ref renames globally (after loop to avoid
+        # corrupting match.position offsets).
+        # Handle double-quoted, single-quoted, and unquoted name patterns.
+        for old_name, new_name in ref_renames.items():
+            escaped = re.escape(old_name)
+            text = re.sub(
+                rf'<ref\s+name\s*=\s*"{escaped}"\s*(/?>|>)',
+                lambda m: f'<ref name="{new_name}"{m.group(1)}',
+                text,
+            )
+            text = re.sub(
+                rf"<ref\s+name\s*=\s*'{escaped}'\s*(/?>|>)",
+                lambda m: f'<ref name="{new_name}"{m.group(1)}',
+                text,
+            )
+            text = re.sub(
+                rf"<ref\s+name\s*=\s*{escaped}(\s*/?>|>)",
+                lambda m: f'<ref name="{new_name}"{m.group(1)}',
+                text,
+            )
 
         output_path.write_text(text, encoding="utf-8")
         self._print_summary(stats)
@@ -162,8 +184,12 @@ class CitationPipeline:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _add_ref_name(text: str, pos: int, body: str) -> str:
-        """Generate a ref name from first author surname + year if missing."""
+    def _add_ref_name(text: str, pos: int, body: str, renames: dict) -> str:
+        """Generate a ref name from first author surname + year if missing.
+
+        Populates *renames* with ``{old_name: new_name}`` for deferred
+        global short-ref replacement.
+        """
         # Find the <ref ...> tag preceding the citation
         prefix = text[:pos]
         ref_m = re.search(r"<ref\s*([^>]*)>\s*$", prefix)
@@ -203,8 +229,6 @@ class CitationPipeline:
             ref_name = f"{name}{year}"
         elif name:
             ref_name = name
-        elif year:
-            ref_name = year
         else:
             # Fallback: first word from title
             tm = re.search(r"\|\s*title\s*=\s*([^|]+)", body)
@@ -214,13 +238,23 @@ class CitationPipeline:
             else:
                 return text  # nothing to name from, leave as-is
 
+        # Wikipedia rejects ref names that are simple integers
+        if ref_name.isdigit():
+            ref_name = f"ref-{ref_name}"
+
         # Insert name into the <ref> tag
         old_ref = ref_m.group(0)
         if existing_name:
             new_ref = old_ref.replace(f'name="{existing_name}"', f'name="{ref_name}"')
         else:
             new_ref = f'<ref name="{ref_name}">'
-        return text[: pos - len(old_ref)] + new_ref + text[pos:]
+        text = text[: pos - len(old_ref)] + new_ref + text[pos:]
+
+        # Record rename for deferred global short-ref replacement
+        if existing_name and existing_name != ref_name:
+            renames[existing_name] = ref_name
+
+        return text
 
     @staticmethod
     def _detect_type(full_match: str) -> str:

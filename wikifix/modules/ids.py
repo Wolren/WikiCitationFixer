@@ -41,8 +41,12 @@ class IdEnrichmentModule(CitationModule):
         doi = doi_m.group(1).strip()
 
         # --- doi-access=free (OA indicator) ---
+        # Only for cite journal / citation (cite book/encyclopedia/web don't support it)
+        template_type = context.get("template_type", "")
+        t = template_type.lower()
+        can_use_doi_access = t in ("citation",) or t.startswith("cite journal")
         has_doi_access = bool(re.search(r"\|\s*doi-access\s*=", text))
-        if not has_doi_access and api.doi_is_oa(doi):
+        if can_use_doi_access and not has_doi_access and api.doi_is_oa(doi):
             text += " |doi-access=free"
             changes["doi-access"] = True
             print("    + Added doi-access=free (OA)")

@@ -175,6 +175,8 @@ class ExpandModule(CitationModule):
 
             if _has_field(text, "page") and _has_field(text, "pages"):
                 pass  # both already present, don't touch
+            elif _has_field(text, "article-number"):
+                pass  # article-number already set, skip pages
             elif force or not (_has_field(text, "page") or _has_field(text, "pages")):
                 pages = msg.get("page")
                 if pages:
@@ -222,7 +224,11 @@ class ExpandModule(CitationModule):
                     text = _add_field(text, "volume", str(epmc["volume"]), force=force)
             if (force or not _has_field(text, "issue")) and epmc.get("issue"):
                 text = _add_field(text, "issue", str(epmc["issue"]), force=force)
-            if not _has_field(text, "page") and not _has_field(text, "pages"):
+            if (
+                not _has_field(text, "page")
+                and not _has_field(text, "pages")
+                and not _has_field(text, "article-number")
+            ):
                 p = epmc.get("pageInfo")
                 if p:
                     text = _add_field(text, "pages", p, force=force)
@@ -266,7 +272,11 @@ class ExpandModule(CitationModule):
                 text = _add_field(text, "volume", str(epmc["volume"]), force=force)
         if (force or not _has_field(text, "issue")) and epmc.get("issue"):
             text = _add_field(text, "issue", str(epmc["issue"]), force=force)
-        if not _has_field(text, "page") and not _has_field(text, "pages"):
+        if (
+            not _has_field(text, "page")
+            and not _has_field(text, "pages")
+            and not _has_field(text, "article-number")
+        ):
             p = epmc.get("pageInfo")
             if p:
                 text = _add_field(text, "pages", p, force=force)
