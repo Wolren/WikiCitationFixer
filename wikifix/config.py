@@ -37,6 +37,9 @@ class ProcessingResult:
 
     text: str
     changes: dict[str, bool]
+    new_template_type: Optional[str] = None
+    rename_params: dict[str, str] = field(default_factory=dict)
+    drop_params: set[str] = field(default_factory=set)
 
     def any_changed(self) -> bool:
         return any(self.changes.values())

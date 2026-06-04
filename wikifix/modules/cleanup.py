@@ -127,7 +127,8 @@ class CleanupModule(CitationModule):
             CleanupModule._FIELD_RE.format(re.escape(field)), "", text, count=1
         )
 
-    def _field_exists(self, text: str, field: str) -> bool:
+    @staticmethod
+    def _field_exists(text: str, field: str) -> bool:
         return bool(re.search(rf"\|\s*{re.escape(field)}\s*=", text))
 
     @staticmethod
@@ -173,10 +174,88 @@ class CleanupModule(CitationModule):
             return None
         return None
 
+    @staticmethod
+    def _detect_citation_type(text: str) -> str | None:
+        """Detect specific template type for a generic {{citation}} body."""
+        has = CleanupModule._field_exists
+
+        # cite thesis: |degree= or |type= containing "thesis"
+        if has(text, "degree"):
+            return "cite thesis"
+        tm = re.search(r"\|\s*type\s*=\s*([^|]+)", text)
+        if tm and "thesis" in tm.group(1).lower():
+            return "cite thesis"
+
+        # cite news: |newspaper=
+        if has(text, "newspaper"):
+            return "cite news"
+
+        # cite magazine: |magazine=
+        if has(text, "magazine"):
+            return "cite magazine"
+
+        # cite journal: |journal=, |bibcode=, |arxiv=
+        if has(text, "journal") or has(text, "bibcode") or has(text, "arxiv"):
+            return "cite journal"
+
+        # cite web: |website=
+        if has(text, "website"):
+            return "cite web"
+
+        # cite book: |isbn= and no periodical indicators
+        # (|work= is excluded — it maps to |title= in cite book)
+        if has(text, "isbn"):
+            for field in ("journal", "website", "newspaper", "magazine"):
+                if has(text, field):
+                    return None
+            return "cite book"
+
+        # cite web (fallback): |work= and no other signals
+        if has(text, "work"):
+            return "cite web"
+
+        return None
+
     def process(self, text: str, context: dict) -> ProcessingResult:
         changes = {}
+        new_template_type = None
         template_type = context.get("template_type", "")
         t = template_type.lower()
+
+        # --- 0. Convert {{citation}} to specific template ---
+        rename_params = {}
+        drop_params = set()
+        detected = None
+        if t == "citation":
+            detected = self._detect_citation_type(text)
+            if detected:
+                new_template_type = detected
+                changes["citation-type"] = True
+                # Set up parameter renames for the target type
+                if detected == "cite book":
+                    has_work = self._field_exists(text, "work")
+                    has_title = self._field_exists(text, "title")
+                    if has_work and has_title:
+                        rename_params["title"] = "chapter"
+                    if has_work:
+                        rename_params["work"] = "title"
+                    if self._field_exists(text, "place"):
+                        rename_params["place"] = "location"
+                    if has_work and self._field_exists(text, "url"):
+                        rename_params["url"] = "chapter-url"
+                elif detected == "cite journal":
+                    if self._field_exists(text, "work"):
+                        rename_params["work"] = "journal"
+                    if self._field_exists(text, "place"):
+                        rename_params["place"] = "location"
+                elif detected == "cite web":
+                    if self._field_exists(text, "work"):
+                        rename_params["work"] = "website"
+                    if self._field_exists(text, "place"):
+                        rename_params["place"] = "location"
+                elif detected in ("cite news", "cite magazine", "cite thesis"):
+                    if self._field_exists(text, "place"):
+                        rename_params["place"] = "location"
 
         # --- 1. Missing or empty |title= ---
         title_val = self._get_field(text, "title")
@@ -197,6 +276,13 @@ class CleanupModule(CitationModule):
         if self._field_exists(text, "isbn"):
             for field in ("work", "journal", "website", "newspaper", "magazine"):
                 if self._field_exists(text, field):
+                    # Don't remove if citation→cite book will rename work→title
+                    if (
+                        field == "work"
+                        and detected == "cite book"
+                        and "work" in rename_params
+                    ):
+                        continue
                     text = self._remove_field(text, field)
                     changes["work-with-isbn"] = True
 
@@ -299,12 +385,7 @@ class CleanupModule(CitationModule):
         # --- 14. Parameter name typo correction ---
         for typo, correct in _TYPO_MAP.items():
             if typo != correct and self._field_exists(text, typo):
-                text = re.sub(
-                    rf"\|\s*{re.escape(typo)}\s*=",
-                    f"| {correct} = ",
-                    text,
-                    count=1,
-                )
+                rename_params[typo] = correct
                 changes["typo-param"] = True
 
         # --- 15. External links in text parameter values ---
@@ -345,7 +426,13 @@ class CleanupModule(CitationModule):
             text = self._remove_field(text, param)
             changes["none-value"] = True
 
-        return ProcessingResult(text=text, changes=changes)
+        return ProcessingResult(
+            text=text,
+            changes=changes,
+            new_template_type=new_template_type,
+            rename_params=rename_params,
+            drop_params=drop_params,
+        )
 
     @staticmethod
     def _set_field(text: str, field: str, new_value: str) -> str:

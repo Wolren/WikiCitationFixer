@@ -49,6 +49,7 @@ python -m wikifix --modules spacing
 | `--force-archive` | off | Archive all citation types, not just cite web/news |
 | `--create-archive` | off | Submit unarchived URLs to Wayback Machine to create new snapshots |
 | `--ref-names` | off | Auto-generate ref names from first author surname + year |
+| `--strip-issn` | off | Remove ISSN when DOI is present (redundant identifier) |
 | `--bare` | off | Clear default modules; add each explicitly with --modules etc. |
 | `--no-MODULE` | off | Exclude a module (e.g. --no-spacing, --no-cleanup) |
 | `-i, --input` | from.txt | Input wikitext file |

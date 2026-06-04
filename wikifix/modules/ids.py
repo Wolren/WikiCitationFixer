@@ -51,7 +51,6 @@ class IdEnrichmentModule(CitationModule):
             changes["doi-access"] = True
             print("    + Added doi-access=free (OA)")
 
-        # --- ISSN ---
         if "issn" in wanted:
             # Only add ISSN for journal-type templates (cite journal, citation)
             # to avoid linking book/website ISSNs that CrossRef may return

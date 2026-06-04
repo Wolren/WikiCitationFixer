@@ -63,6 +63,7 @@ class CitationPipeline:
         force_archive_all: bool = False,
         create_archive: bool = False,
         ref_names: bool = False,
+        strip_issn: bool = False,
     ):
         """Runs a sequence of modules over all cite templates in a file.
 
@@ -87,6 +88,8 @@ class CitationPipeline:
                 Submit unarchived URLs to Wayback for snapshot creation.
             ref_names:
                 Auto-generate ref names from first author surname + year.
+            strip_issn:
+                Remove ISSN when DOI is present.
         """
         self.modules = modules
         self.mode = mode
@@ -98,6 +101,7 @@ class CitationPipeline:
         self.force_archive_all = force_archive_all
         self.create_archive = create_archive
         self.ref_names = ref_names
+        self.strip_issn = strip_issn
 
     # ------------------------------------------------------------------
     # Public API
@@ -156,16 +160,34 @@ class CitationPipeline:
                 "ids_to_fetch": self.ids_to_fetch,
                 "force_archive_all": self.force_archive_all,
                 "create_archive": self.create_archive,
+                "strip_issn": self.strip_issn,
             }
 
             # Run module pipeline
             overall_changes = {}
+            all_renames: dict[str, str] = {}
+            all_drops: set[str] = set()
             for mod in self.modules:
                 result = mod.process(body, context)
                 body = result.text
+                if result.new_template_type:
+                    template_type = result.new_template_type
+                if result.rename_params:
+                    all_renames.update(result.rename_params)
+                if result.drop_params:
+                    all_drops.update(result.drop_params)
                 overall_changes.update(result.changes)
 
-            # Accumulate stats
+            # Apply deferred param renames and drops
+            if all_renames:
+                body = self._apply_renames(body, all_renames)
+            if all_drops:
+                body = self._apply_drops(body, all_drops)
+                overall_changes["dropped-params"] = True
+
+            # Strip ISSN when DOI present and --strip-issn is set
+            if self.strip_issn and re.search(r"\|\s*doi\s*=", body):
+                body = re.sub(r"\|\s*issn\s*=[^\|}]+", "", body)
             for k, v in overall_changes.items():
                 stats.module_stats[k] = stats.module_stats.get(k, 0) + (1 if v else 0)
 
@@ -230,6 +252,41 @@ class CitationPipeline:
             if clean.lower() not in _STOPWORDS:
                 return clean.capitalize()
         return None
+
+    @staticmethod
+    def _apply_renames(body: str, renames: dict[str, str]) -> str:
+        """Rename parameters in a citation body dict.
+
+        Handles the case where both old and new names exist by using
+        a three-way swap (old→interim, new→old, interim→new) so no
+        data is lost.
+        """
+        for old, new in renames.items():
+            if old == new:
+                continue
+            old_re = re.compile(rf"\|\s*{re.escape(old)}\s*=\s*([^|]*)")
+            if not old_re.search(body):
+                continue
+            new_re = re.compile(rf"\|\s*{re.escape(new)}\s*=\s*([^|]*)")
+            if new_re.search(body):
+                interim = f"__{old}_to_{new}__"
+                body = old_re.sub(lambda m: f"| {interim} = {m.group(1).strip()}", body)
+                body = new_re.sub(lambda m: f"| {old} = {m.group(1).strip()}", body)
+                body = re.compile(rf"\|\s*{re.escape(interim)}\s*=\s*([^|]*)").sub(
+                    lambda m: f"| {new} = {m.group(1).strip()}", body
+                )
+            else:
+                body = old_re.sub(lambda m: f"| {new} = {m.group(1).strip()}", body)
+        return body
+
+    @staticmethod
+    def _apply_drops(body: str, drop: set[str]) -> str:
+        """Remove parameters from a citation body."""
+        for param in drop:
+            body = re.sub(rf"\|\s*{re.escape(param)}\s*=\s*[^|]+", "", body)
+        # Clean up double pipes from removal
+        body = re.sub(r"\|\s*\|", "|", body)
+        return body
 
     @staticmethod
     def _add_ref_name(
@@ -394,6 +451,7 @@ class CitationPipeline:
         )
         print(f"Create archive:   {self.create_archive}")
         print(f"Ref names:        {self.ref_names}")
+        print(f"Strip ISSN:       {self.strip_issn}")
         print()
 
     def _print_summary(self, stats: CitationStats):

@@ -105,6 +105,11 @@ def build_argparser() -> argparse.ArgumentParser:
         help="Fetch full author names from CrossRef/PubMed (requires DOI)",
     )
     p.add_argument(
+        "--strip-issn",
+        action="store_true",
+        help="Remove ISSN when DOI is present (redundant identifier)",
+    )
+    p.add_argument(
         "--max-authors",
         type=int,
         default=6,
@@ -194,6 +199,9 @@ def main():
     else:
         module_source = args.modules
     module_names = [m.strip() for m in module_source.split(",") if m.strip()]
+    # Deduplicate while preserving order
+    seen = set()
+    module_names = [n for n in module_names if n not in seen and not seen.add(n)]
 
     # Apply --no-MODULE exclusions
     for name in MODULE_REGISTRY:
@@ -210,6 +218,8 @@ def main():
     modules = [MODULE_REGISTRY[n]() for n in module_names]
     mode = Mode.FORCE_REFRESH if args.force else Mode.INCREMENTAL
     ids_to_fetch = [i.strip() for i in args.ids.split(",") if i.strip()]
+    if args.enrich:
+        ids_to_fetch = [i for i in ids_to_fetch if i != "issn"]
 
     pipeline = CitationPipeline(
         modules=modules,
@@ -221,6 +231,7 @@ def main():
         force_archive_all=args.force_archive,
         create_archive=args.create_archive,
         ref_names=args.ref_names,
+        strip_issn=args.strip_issn,
     )
 
     infile = Path(args.input)

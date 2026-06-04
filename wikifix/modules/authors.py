@@ -281,9 +281,15 @@ class AuthorModule(CitationModule):
 
         if style == "normal":
             has_vauthors = bool(AuthorModule._VAUTHORS_RE.search(text))
-            has_last = bool(re.search(_param_re(r"last\d?"), text))
 
-            if has_vauthors and not has_last:
+            if has_vauthors:
+                # Strip any existing last/first to avoid duplicates
+                for i in range(1, 13):
+                    lk = r"last\d?" if i == 1 else f"last{i}"
+                    fk = r"first\d?" if i == 1 else f"first{i}"
+                    text = re.sub(rf"\|\s*{lk}\s*=[^\|}}]+", "", text)
+                    text = re.sub(rf"\|\s*{fk}\s*=[^\|}}]+", "", text)
+                text = re.sub(r"\|\s*\|", "|", text).strip()
                 # Vancouver → normal
                 full_names = None
                 if refresh and api and doi:
@@ -295,7 +301,7 @@ class AuthorModule(CitationModule):
                 if new_text != text:
                     text = new_text
                     changes["authors"] = True
-            elif has_last and not has_vauthors:
+            else:
                 # Already normal → enrich abbreviated first names
                 if refresh and api and doi:
                     full_names = self._try_fetch_authors(api, doi)
