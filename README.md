@@ -52,6 +52,8 @@ python -m wikifix --modules spacing
 | `--strip-issn` | off | Remove ISSN when DOI is present (redundant identifier) |
 | `--bare` | off | Clear default modules; add each explicitly with --modules etc. |
 | `--no-MODULE` | off | Exclude a module (e.g. --no-spacing, --no-cleanup) |
+| `-w, --workers` | 4 | Number of parallel workers for citation processing |
+| `-e, --env` | - | Load .env file with API keys for higher rate limits |
 | `-i, --input` | from.txt | Input wikitext file |
 | `-o, --output` | to.txt | Output file |
 
@@ -91,6 +93,23 @@ With `--refresh-authors`, the tool queries CrossRef, OpenAlex, DataCite, and Pub
 | Wayback Machine | URL to archive snapshot | no |
 
 All API calls are rate-limited with configurable delays. No API keys required.
+
+## API keys (optional)
+
+Providing API keys unlocks higher rate limits for faster processing:
+
+| Key | Variable | Without | With |
+|-----|----------|:-------:|:----:|
+| [NCBI](https://ncbi.nlm.nih.gov/account/) | `NCBI_API_KEY` | 3 req/s | 10 req/s |
+| [Semantic Scholar](https://api.semanticscholar.org/) | `SEMANTIC_SCHOLAR_API_KEY` | ~1 req/s | 10 req/s |
+| [CrossRef](https://github.com/CrossRef/rest-api-doc#good-manners) | `CROSSREF_EMAIL` | shared pool | polite pool |
+
+Create a `.env` file (copy from `.env.example`) and load it with `--env`:
+
+```bash
+python -m wikifix --env .env
+python -m wikifix --env .env --force
+```
 
 ## Configuration
 

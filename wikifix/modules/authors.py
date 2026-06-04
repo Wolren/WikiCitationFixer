@@ -22,6 +22,7 @@ from typing import List, Optional, Tuple
 
 from wikifix.base import CitationModule
 from wikifix.config import ProcessingResult
+from wikifix.logger import get_logger; log = get_logger()
 
 
 def _param_re(name: str) -> str:
@@ -55,6 +56,8 @@ _MULTI_NAME_SEP = re.compile(r";\s*|\s+and\s+|\s*&\s*")
 
 
 class AuthorModule(CitationModule):
+    """Convert between Vancouver and normal author styles."""
+
     name = "authors"
     description = "Convert between Vancouver (|vauthors=) and normal (|last=/|first=) author styles"
 
@@ -101,10 +104,10 @@ class AuthorModule(CitationModule):
     ) -> str:
         """Replace |vauthors=... with |lastN=/|firstN= pairs.
 
-        If *full_names* is provided (list of (family, given) from CrossRef),
-        use full given names instead of parsed initials.
-
-        *max_authors* caps the number of author pairs output (0 = unlimited).
+        Args:
+            full_names: List of (family, given) from CrossRef to use full given
+                names instead of parsed initials.
+            max_authors: Cap the number of author pairs output (0 = unlimited).
         """
         m = AuthorModule._VAUTHORS_RE.search(text)
         if not m:
@@ -152,6 +155,7 @@ class AuthorModule(CitationModule):
 
     @staticmethod
     def extract_initials(fname: str) -> str:
+        """Extract up to two uppercase initials from a given name."""
         if not fname:
             return ""
         return "".join(
@@ -271,6 +275,7 @@ class AuthorModule(CitationModule):
         return best
 
     def process(self, text: str, context: dict) -> ProcessingResult:
+        """Convert author styles and/or enrich abbreviated given names."""
         original = text
         changes = {"authors": False}
         style = context.get("author_style", "normal")

@@ -15,47 +15,109 @@ Provides rate-limited access to:
 """
 
 import re
+import threading
 import time
-from typing import Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any, Callable, Optional
 
 import requests
 
+from wikifix.cache import ResponseCache
 from wikifix.config import ApiConfig
+from wikifix.logger import get_logger
+
+log = get_logger()
 
 
 class ApiClient:
-    """Rate-limited API client aggregating CrossRef, NCBI, and Semantic Scholar."""
+    """Rate-limited API client with optional caching and concurrent fetch support."""
 
     def __init__(self, config: ApiConfig = ApiConfig()):
+        """Initialize the API client with rate-limit, cache, and concurrency config."""
         self.config = config
         self._last_call = 0.0
+        self._lock = threading.Lock()
+        self._cache: ResponseCache | None = None
+        if config.cache_dir:
+            self._cache = ResponseCache(config.cache_dir, config.cache_ttl)
 
     def _rate_limit(self, delay: float):
-        elapsed = time.time() - self._last_call
-        if elapsed < delay:
-            time.sleep(delay - elapsed)
-        self._last_call = time.time()
+        """Sleep if needed to respect the per-API rate-limit delay (thread-safe)."""
+        with self._lock:
+            elapsed = time.time() - self._last_call
+            if elapsed < delay:
+                time.sleep(delay - elapsed)
+            self._last_call = time.time()
+
+    # ---- Caching helpers ----
+
+    def _cached_get(self, key: str) -> Any | None:
+        """Return cached value, logging a hit."""
+        if not self._cache:
+            return None
+        val = self._cache.get(key)
+        if val is not None:
+            log.debug("  [cache HIT] %s", key[:16])
+        return val
+
+    def _cached_set(self, key: str, value: Any) -> None:
+        """Store value in cache."""
+        if self._cache:
+            self._cache.set(key, value)
+
+    # ---- Concurrent fetch helper ----
+
+    @staticmethod
+    def concurrent_fetch(
+        tasks: list[tuple[str, Callable[[], Any]]],
+        max_workers: int = 4,
+    ) -> dict[str, Any]:
+        """Run multiple zero-argument callables concurrently.
+
+        Args:
+            tasks:   List of ``(label, callable)`` pairs.
+            max_workers: Thread pool size.
+
+        Returns:
+            ``{label: result}`` dict. Exceptions are caught and stored as
+            ``None`` with a warning logged.
+        """
+        results: dict[str, Any] = {}
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            fut_to_label = {pool.submit(fn): label for label, fn in tasks}
+            for future in as_completed(fut_to_label):
+                label = fut_to_label[future]
+                try:
+                    results[label] = future.result()
+                except Exception as exc:
+                    log.warning("  concurrent %s failed: %s", label, exc)
+                    results[label] = None
+        return results
 
     # ---- DOI helpers ----
 
     @staticmethod
     def clean_doi(doi: str) -> str:
+        """Strip ``https://doi.org/`` prefix from a DOI string."""
         return re.sub(
             r"https?://(dx\.)?doi\.org/", "", doi.strip(), flags=re.IGNORECASE
         )
 
     @staticmethod
     def clean_arxiv(arxiv_id: str) -> str:
+        """Strip ``https://arxiv.org/abs/`` prefix from an arXiv ID."""
         return re.sub(
             r"https?://arxiv\.org/abs/", "", arxiv_id.strip(), flags=re.IGNORECASE
         )
 
     @staticmethod
     def clean_isbn(isbn: str) -> str:
+        """Strip non-digit non-X characters from an ISBN."""
         return re.sub(r"[^0-9X]", "", isbn.strip().upper())
 
     @staticmethod
     def clean_url(url: str) -> str:
+        """Ensure a URL has a scheme, defaulting to https."""
         url = url.strip().rstrip("/")
         if not url.startswith(("http://", "https://")):
             url = "https://" + url
@@ -65,8 +127,12 @@ class ApiClient:
 
     def fetch_crossref(self, doi: str) -> Optional[dict]:
         """Fetch CrossRef work metadata for a DOI."""
-        self._rate_limit(self.config.crossref_delay)
         doi = self.clean_doi(doi)
+        cache_key = ResponseCache.make_key("crossref", "work", doi)
+        cached = self._cached_get(cache_key)
+        if cached is not None:
+            return cached
+        self._rate_limit(self.config.crossref_delay)
         try:
             resp = requests.get(
                 f"https://api.crossref.org/works/{doi}",
@@ -74,12 +140,15 @@ class ApiClient:
                 timeout=10,
             )
             if resp.ok:
-                return resp.json().get("message")
+                msg = resp.json().get("message")
+                self._cached_set(cache_key, msg)
+                return msg
         except Exception as e:
-            print(f"  CrossRef fetch failed for DOI {doi}: {e}")
+            log.warning("  CrossRef fetch failed for DOI %s: %s", doi, e)
         return None
 
     def doi_to_issn(self, doi: str) -> Optional[str]:
+        """Look up ISSN from CrossRef by DOI."""
         msg = self.fetch_crossref(doi)
         if msg:
             issns = msg.get("ISSN", [])
@@ -98,7 +167,7 @@ class ApiClient:
         return False
 
     def doi_to_authors(self, doi: str) -> list:
-        """Fetch full author names from CrossRef. Returns [(family, given), ...]."""
+        """Fetch full author names from CrossRef by DOI."""
         msg = self.fetch_crossref(doi)
         if msg:
             authors = msg.get("author", [])
@@ -107,10 +176,22 @@ class ApiClient:
 
     # ---- NCBI E-utilities ----
 
+    def _ncbi_params(self, **kwargs) -> dict:
+        """Build query params for NCBI, appending API key if configured."""
+        params = dict(kwargs)
+        if self.config.ncbi_api_key:
+            params["api_key"] = self.config.ncbi_api_key
+        return params
+
     def doi_to_pmid(self, doi: str) -> Optional[str]:
-        self._rate_limit(self.config.ncbi_delay)
+        """Look up PubMed ID from NCBI E-utilities by DOI."""
         doi = self.clean_doi(doi)
-        params = {"db": "pubmed", "term": f"{doi}[DOI]", "retmode": "json"}
+        cache_key = ResponseCache.make_key("ncbi", "doi_to_pmid", doi)
+        cached = self._cached_get(cache_key)
+        if cached is not None:
+            return cached
+        self._rate_limit(self.config.ncbi_delay)
+        params = self._ncbi_params(db="pubmed", term=f"{doi}[DOI]", retmode="json")
         try:
             resp = requests.get(
                 "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
@@ -119,14 +200,21 @@ class ApiClient:
             )
             if resp.ok:
                 ids = resp.json().get("esearchresult", {}).get("idlist", [])
-                return ids[0] if ids else None
+                val = ids[0] if ids else None
+                self._cached_set(cache_key, val)
+                return val
         except Exception as e:
-            print(f"  PMID fetch failed for DOI {doi}: {e}")
+            log.warning("  PMID fetch failed for DOI %s: %s", doi, e)
         return None
 
     def pmid_to_pmc(self, pmid: str) -> Optional[str]:
+        """Look up PMC ID from NCBI ID Converter by PMID."""
+        cache_key = ResponseCache.make_key("ncbi", "pmid_to_pmc", pmid)
+        cached = self._cached_get(cache_key)
+        if cached is not None:
+            return cached
         self._rate_limit(self.config.ncbi_delay)
-        params = {"ids": pmid, "format": "json"}
+        params = self._ncbi_params(ids=pmid, format="json")
         try:
             resp = requests.get(
                 "https://www.ncbi.nlm.nih.gov/pmc/utils/idconv/v1.0/",
@@ -135,9 +223,11 @@ class ApiClient:
             )
             if resp.ok:
                 pmc = resp.json().get("records", [{}])[0].get("pmcid", "")
-                return pmc.removeprefix("PMC") if pmc else None
+                val = pmc.removeprefix("PMC") if pmc else None
+                self._cached_set(cache_key, val)
+                return val
         except Exception as e:
-            print(f"  PMC fetch failed for PMID {pmid}: {e}")
+            log.warning("  PMC fetch failed for PMID %s: %s", pmid, e)
         return None
 
     def doi_to_authors_pubmed(self, doi: str) -> list:
@@ -145,11 +235,16 @@ class ApiClient:
         pmid = self.doi_to_pmid(doi)
         if not pmid:
             return []
+        cache_key = ResponseCache.make_key("ncbi", "authors_pubmed", pmid)
+        cached = self._cached_get(cache_key)
+        if cached is not None:
+            return cached
         self._rate_limit(self.config.ncbi_delay)
         try:
+            params = self._ncbi_params(db="pubmed", id=pmid, retmode="json")
             resp = requests.get(
                 "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi",
-                params={"db": "pubmed", "id": pmid, "retmode": "json"},
+                params=params,
                 timeout=10,
             )
             if resp.ok:
@@ -163,17 +258,22 @@ class ApiClient:
                         result.append((parts[0], parts[1]))
                     elif parts:
                         result.append((parts[0], ""))
+                self._cached_set(cache_key, result)
                 return result
         except Exception as e:
-            print(f"  PubMed author fetch failed for DOI {doi}: {e}")
+            log.warning("  PubMed author fetch failed for DOI %s: %s", doi, e)
         return []
 
     # ---- Europe PMC ----
 
     def fetch_europepmc(self, doi: str) -> Optional[dict]:
         """Fetch full metadata from Europe PMC by DOI."""
-        self._rate_limit(self.config.europepmc_delay)
         doi = self.clean_doi(doi)
+        cache_key = ResponseCache.make_key("europepmc", "by_doi", doi)
+        cached = self._cached_get(cache_key)
+        if cached is not None:
+            return cached
+        self._rate_limit(self.config.europepmc_delay)
         try:
             resp = requests.get(
                 "https://www.ebi.ac.uk/europepmc/api/search",
@@ -182,14 +282,19 @@ class ApiClient:
             )
             if resp.ok:
                 results = resp.json().get("resultList", {}).get("result", [])
-                if results:
-                    return results[0]
+                val = results[0] if results else None
+                self._cached_set(cache_key, val)
+                return val
         except Exception as e:
-            print(f"  Europe PMC fetch failed for DOI {doi}: {e}")
+            log.warning("  Europe PMC fetch failed for DOI %s: %s", doi, e)
         return None
 
     def pmid_to_metadata_europepmc(self, pmid: str) -> Optional[dict]:
         """Fetch full metadata from Europe PMC by PMID."""
+        cache_key = ResponseCache.make_key("europepmc", "by_pmid", pmid)
+        cached = self._cached_get(cache_key)
+        if cached is not None:
+            return cached
         self._rate_limit(self.config.europepmc_delay)
         try:
             resp = requests.get(
@@ -203,18 +308,23 @@ class ApiClient:
             )
             if resp.ok:
                 results = resp.json().get("resultList", {}).get("result", [])
-                if results:
-                    return results[0]
+                val = results[0] if results else None
+                self._cached_set(cache_key, val)
+                return val
         except Exception as e:
-            print(f"  Europe PMC fetch failed for PMID {pmid}: {e}")
+            log.warning("  Europe PMC fetch failed for PMID %s: %s", pmid, e)
         return None
 
     # ---- arXiv ----
 
     def fetch_arxiv(self, arxiv_id: str) -> Optional[dict]:
         """Fetch metadata from arXiv API by arXiv ID."""
-        self._rate_limit(self.config.arxiv_delay)
         arxiv_id = self.clean_arxiv(arxiv_id)
+        cache_key = ResponseCache.make_key("arxiv", "meta", arxiv_id)
+        cached = self._cached_get(cache_key)
+        if cached is not None:
+            return cached
+        self._rate_limit(self.config.arxiv_delay)
         import xml.etree.ElementTree as ET
 
         try:
@@ -253,8 +363,10 @@ class ApiClient:
                     "abstract": summary,
                     "arxiv_id": arxiv_id,
                 }
+                self._cached_set(cache_key, result)
+                return result
         except Exception as e:
-            print(f"  arXiv fetch failed for {arxiv_id}: {e}")
+            log.warning("  arXiv fetch failed for %s: %s", arxiv_id, e)
         return None
 
     # ---- Open Library ----
@@ -267,6 +379,10 @@ class ApiClient:
         import time as _time
 
         isbn = self.clean_isbn(isbn)
+        cache_key = ResponseCache.make_key("openlibrary", "book", isbn)
+        cached = self._cached_get(cache_key)
+        if cached is not None:
+            return cached
         for attempt in range(3):
             self._rate_limit(self.config.openlibrary_delay)
             try:
@@ -303,24 +419,27 @@ class ApiClient:
                 publish_date = book.get("publish_date", "")
                 publishers = book.get("publishers", [])
                 publisher = publishers[0].get("name", "") if publishers else ""
-                return {
+                result = {
                     "title": title,
                     "authors": authors,
                     "date": publish_date,
                     "publisher": publisher,
                     "isbn": isbn,
                 }
+                self._cached_set(cache_key, result)
+                return result
             except Exception as e:
                 if attempt < 2:
                     _time.sleep(1 * (attempt + 1))
                     continue
-                print(f"  Open Library fetch failed for ISBN {isbn}: {e}")
+                log.warning("  Open Library fetch failed for ISBN %s: %s", isbn, e)
         return None
 
     def check_wayback(self, url: str) -> Optional[tuple]:
         """Check Wayback Machine for an archived snapshot of *url*.
 
-        Returns (archive_url, archive_date_str) or None.
+        Returns:
+            ``(archive_url, archive_date_str)`` or None.
         """
         self._rate_limit(self.config.wayback_delay)
         url = self.clean_url(url)
@@ -340,14 +459,14 @@ class ApiClient:
                     date_str = f"{ts[:4]}-{ts[4:6]}-{ts[6:8]}"
                     return (archive_url, date_str)
         except Exception as e:
-            print(f"  Wayback Machine check failed for {url}: {e}")
+            log.warning("  Wayback Machine check failed for %s: %s", url, e)
         return None
 
     def save_wayback(self, url: str) -> bool:
         """Request Wayback Machine to create a new snapshot of *url*.
 
-        Returns True if the save request was accepted (2xx status).
-        The snapshot may take a few seconds to become available.
+        Returns:
+            True if the save request was accepted (2xx status).
         """
         self._rate_limit(self.config.wayback_delay * 5)
         url = self.clean_url(url)
@@ -358,18 +477,22 @@ class ApiClient:
                 allow_redirects=True,
             )
             if resp.status_code == 429:
-                print(f"    Wayback rate-limited (429), skipping save")
+                log.warning("    Wayback rate-limited (429), skipping save")
             return resp.ok
         except Exception as e:
-            print(f"  Wayback Machine save failed for {url}: {e}")
+            log.warning("  Wayback Machine save failed for %s: %s", url, e)
         return False
 
     # ---- OpenAlex ----
 
     def doi_to_authors_openalex(self, doi: str) -> list:
-        """Fetch author names from OpenAlex."""
-        self._rate_limit(self.config.openalex_delay)
+        """Fetch author names from OpenAlex by DOI."""
         doi = self.clean_doi(doi)
+        cache_key = ResponseCache.make_key("openalex", "authors", doi)
+        cached = self._cached_get(cache_key)
+        if cached is not None:
+            return cached
+        self._rate_limit(self.config.openalex_delay)
         try:
             resp = requests.get(
                 f"https://api.openalex.org/works/https://doi.org/{doi}",
@@ -385,8 +508,6 @@ class ApiClient:
                     display_name = author.get("display_name", "")
                     if not display_name:
                         continue
-                    # Parse "Smith, John A." → (Smith, John A.)
-                    # Or "John A. Smith" → (Smith, John A.)
                     if ", " in display_name:
                         parts = display_name.split(", ", 1)
                         result.append((parts[0].strip(), parts[1].strip()))
@@ -396,17 +517,22 @@ class ApiClient:
                             result.append((tokens[-1], " ".join(tokens[:-1])))
                         elif tokens:
                             result.append((tokens[0], ""))
+                self._cached_set(cache_key, result)
                 return result
         except Exception as e:
-            print(f"  OpenAlex fetch failed for DOI {doi}: {e}")
+            log.warning("  OpenAlex fetch failed for DOI %s: %s", doi, e)
         return []
 
     # ---- DataCite ----
 
     def doi_to_authors_datacite(self, doi: str) -> list:
-        """Fetch author names from DataCite."""
-        self._rate_limit(self.config.datacite_delay)
+        """Fetch author names from DataCite by DOI."""
         doi = self.clean_doi(doi)
+        cache_key = ResponseCache.make_key("datacite", "authors", doi)
+        cached = self._cached_get(cache_key)
+        if cached is not None:
+            return cached
+        self._rate_limit(self.config.datacite_delay)
         try:
             resp = requests.get(
                 f"https://api.datacite.org/dois/{doi}",
@@ -424,31 +550,41 @@ class ApiClient:
                     if family:
                         result.append((family, given))
                     elif c.get("name"):
-                        # Fallback: parse "Smith, John" format
                         name = c["name"]
                         if ", " in name:
                             parts = name.split(", ", 1)
                             result.append((parts[0].strip(), parts[1].strip()))
                         else:
                             result.append((name, ""))
+                self._cached_set(cache_key, result)
                 return result
         except Exception as e:
-            print(f"  DataCite fetch failed for DOI {doi}: {e}")
+            log.warning("  DataCite fetch failed for DOI %s: %s", doi, e)
         return []
 
     # ---- Semantic Scholar ----
 
     def doi_to_s2cid(self, doi: str) -> Optional[str]:
-        self._rate_limit(self.config.semantic_scholar_delay)
+        """Look up Semantic Scholar paper ID by DOI."""
         doi = self.clean_doi(doi)
+        cache_key = ResponseCache.make_key("semantic", "s2cid", doi)
+        cached = self._cached_get(cache_key)
+        if cached is not None:
+            return cached
+        self._rate_limit(self.config.semantic_scholar_delay)
+        headers = {"User-Agent": self.config.user_agent}
+        if self.config.semantic_scholar_api_key:
+            headers["x-api-key"] = self.config.semantic_scholar_api_key
         try:
             resp = requests.get(
                 f"https://api.semanticscholar.org/v1/paper/{doi}",
-                headers={"User-Agent": self.config.user_agent},
+                headers=headers,
                 timeout=10,
             )
             if resp.ok:
-                return resp.json().get("paperId")
+                val = resp.json().get("paperId")
+                self._cached_set(cache_key, val)
+                return val
         except Exception as e:
-            print(f"  S2CID fetch failed for DOI {doi}: {e}")
+            log.warning("  S2CID fetch failed for DOI %s: %s", doi, e)
         return None

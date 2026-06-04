@@ -17,13 +17,17 @@ from typing import Set
 
 from wikifix.base import CitationModule
 from wikifix.config import Mode, ProcessingResult
+from wikifix.logger import get_logger; log = get_logger()
 
 
 class IdEnrichmentModule(CitationModule):
+    """Enrich citations with PMID, PMC, ISSN, S2CID via DOI."""
+
     name = "ids"
     description = "Enrich citations with PMID, PMC, ISSN, S2CID via DOI"
 
     def process(self, text: str, context: dict) -> ProcessingResult:
+        """Fetch and add missing identifiers (ISSN, PMID, PMC, S2CID) using existing DOI."""
         changes = {k: False for k in ("issn", "pmid", "pmc", "s2cid", "doi-access")}
         api = context.get("api")
         mode: Mode = context.get("mode", Mode.INCREMENTAL)
@@ -49,7 +53,7 @@ class IdEnrichmentModule(CitationModule):
         if can_use_doi_access and not has_doi_access and api.doi_is_oa(doi):
             text += " |doi-access=free"
             changes["doi-access"] = True
-            print("    + Added doi-access=free (OA)")
+            log.info("    + Added doi-access=free (OA)")
 
         if "issn" in wanted:
             # Only add ISSN for journal-type templates (cite journal, citation)
@@ -71,7 +75,7 @@ class IdEnrichmentModule(CitationModule):
                         text += f" |issn={issn}"
                         changes["issn"] = True
                         action = "Updated" if mode == Mode.FORCE_REFRESH else "Added"
-                        print(f"    + {action} ISSN {issn}")
+                        log.info("    + %s ISSN %s", action, issn)
 
         # --- PMID ---
         pmid = None
@@ -86,7 +90,7 @@ class IdEnrichmentModule(CitationModule):
                     text += f" |pmid={pmid}"
                     changes["pmid"] = True
                     action = "Updated" if mode == Mode.FORCE_REFRESH else "Added"
-                    print(f"    + {action} PMID {pmid}")
+                    log.info("    + %s PMID %s", action, pmid)
             else:
                 m = re.search(r"\|\s*pmid\s*=\s*(\d+)", text)
                 if m:
@@ -104,7 +108,7 @@ class IdEnrichmentModule(CitationModule):
                     text += f" |pmc={pmc}"
                     changes["pmc"] = True
                     action = "Updated" if mode == Mode.FORCE_REFRESH else "Added"
-                    print(f"    + {action} PMC {pmc}")
+                    log.info("    + %s PMC %s", action, pmc)
 
         # --- S2CID ---
         if "s2cid" in wanted:
@@ -118,6 +122,6 @@ class IdEnrichmentModule(CitationModule):
                     text += f" |s2cid={s2cid}"
                     changes["s2cid"] = True
                     action = "Updated" if mode == Mode.FORCE_REFRESH else "Added"
-                    print(f"    + {action} S2CID {s2cid}")
+                    log.info("    + %s S2CID %s", action, s2cid)
 
         return ProcessingResult(text=text, changes=changes)

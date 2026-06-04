@@ -9,9 +9,12 @@ import re
 
 from wikifix.base import CitationModule
 from wikifix.config import ProcessingResult
+from wikifix.logger import get_logger; log = get_logger()
 
 
 class SpacingModule(CitationModule):
+    """Normalize pipe and equals-sign spacing in parameters."""
+
     name = "spacing"
     description = "Normalize pipe and equals-sign spacing in parameters"
 
@@ -37,6 +40,7 @@ class SpacingModule(CitationModule):
         return re.sub(r"\s*\|\s*", " | ", text)
 
     def process(self, text: str, context: dict) -> ProcessingResult:
+        """Normalize whitespace around pipes and equals signs."""
         start = text
         text = self._format_equals(text)
         text = self._format_pipes(text)

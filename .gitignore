@@ -53,3 +53,6 @@ htmlcov/
 # Logs
 *.log
 /.ai/
+
+# Local env with API keys (do not share)
+.env

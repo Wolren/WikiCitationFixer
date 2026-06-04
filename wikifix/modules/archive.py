@@ -14,6 +14,7 @@ import re
 
 from wikifix.base import CitationModule
 from wikifix.config import Mode, ProcessingResult
+from wikifix.logger import get_logger; log = get_logger()
 
 _WEB_TYPES = {"cite web", "cite news"}
 
@@ -34,10 +35,13 @@ _DEPRECATED_ARCHIVES = re.compile(
 
 
 class ArchiveModule(CitationModule):
+    """Add archive-url/archive-date from Wayback Machine."""
+
     name = "archive"
     description = "Add archive-url/archive-date from Wayback Machine"
 
     def process(self, text: str, context: dict) -> ProcessingResult:
+        """Add or validate archive-url/archive-date from Wayback Machine."""
         start = text
         template_type = context.get("template_type", "")
         api = context.get("api")
@@ -102,15 +106,17 @@ class ArchiveModule(CitationModule):
 
         # Optionally create a new snapshot if none exists
         if not result and create_archive:
-            print(f"    + No existing snapshot, submitting to Wayback for archiving...")
+            log.info(
+                "    + No existing snapshot, submitting to Wayback for archiving..."
+            )
             if api.save_wayback(url):
                 result = api.check_wayback(url)
                 if result:
-                    print(f"    + Snapshot created successfully")
+                    log.info("    + Snapshot created successfully")
                 else:
-                    print(f"    + Save submitted but snapshot not yet available")
+                    log.info("    + Save submitted but snapshot not yet available")
             else:
-                print(f"    + Wayback save request failed")
+                log.warning("    + Wayback save request failed")
 
         # Restrict to web/news types by default (unless --force-archive)
         if not force_all and template_type not in _WEB_TYPES:
@@ -128,15 +134,17 @@ class ArchiveModule(CitationModule):
 
         # Optionally create a new snapshot if none exists
         if not result and create_archive:
-            print(f"    + No existing snapshot, submitting to Wayback for archiving...")
+            log.info(
+                "    + No existing snapshot, submitting to Wayback for archiving..."
+            )
             if api.save_wayback(url):
                 result = api.check_wayback(url)
                 if result:
-                    print(f"    + Snapshot created successfully")
+                    log.info("    + Snapshot created successfully")
                 else:
-                    print(f"    + Save submitted but snapshot not yet available")
+                    log.info("    + Save submitted but snapshot not yet available")
             else:
-                print(f"    + Wayback save request failed")
+                log.warning("    + Wayback save request failed")
 
         if not result:
             return ProcessingResult(text=text, changes=changes)
@@ -166,16 +174,20 @@ class ArchiveModule(CitationModule):
             + f" | archive-url = {archive_url} | archive-date = {archive_date} | url-status = {url_status}"
         )
         action = "Replaced" if mode == Mode.FORCE_REFRESH else "Added"
-        print(f"    + {action} archive (from Wayback Machine, status={url_status})")
+        log.info(
+            "    + %s archive (from Wayback Machine, status=%s)", action, url_status
+        )
         changes["archive"] = True
 
         return ProcessingResult(text=text, changes=changes)
 
     @staticmethod
     def _get_field(text: str, field: str) -> str | None:
+        """Extract the value of a parameter from the citation body."""
         m = re.search(rf"\|\s*{re.escape(field)}\s*=\s*([^|]+)", text)
         return m.group(1).strip() if m else None
 
     @staticmethod
     def _remove_field(text: str, field: str) -> str:
+        """Remove a parameter and its value from the citation body."""
         return re.sub(rf"\|\s*{re.escape(field)}\s*=[^|]+", "", text, count=1)

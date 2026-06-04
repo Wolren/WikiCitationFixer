@@ -25,6 +25,7 @@ import re
 
 from wikifix.base import CitationModule
 from wikifix.config import ProcessingResult
+from wikifix.logger import get_logger; log = get_logger()
 
 # Deprecated CS1/CS2 parameters and their replacements (if any)
 _DEPRECATED = {
@@ -111,6 +112,8 @@ _TEXT_PARAMS = {
 
 
 class CleanupModule(CitationModule):
+    """Fix common CS1/CS2 template maintenance issues."""
+
     name = "cleanup"
     description = "Fix CS1/CS2 maintenance issues"
 
@@ -118,26 +121,30 @@ class CleanupModule(CitationModule):
 
     @staticmethod
     def _get_field(text: str, field: str) -> str | None:
+        """Extract the value of a parameter from the citation body."""
         m = re.search(rf"\|\s*{re.escape(field)}\s*=\s*([^|]+)", text)
         return m.group(1).strip() if m else None
 
     @staticmethod
     def _remove_field(text: str, field: str) -> str:
+        """Remove a parameter and its value from the citation body."""
         return re.sub(
             CleanupModule._FIELD_RE.format(re.escape(field)), "", text, count=1
         )
 
     @staticmethod
     def _field_exists(text: str, field: str) -> bool:
+        """Check whether a parameter name appears in the citation body."""
         return bool(re.search(rf"\|\s*{re.escape(field)}\s*=", text))
 
     @staticmethod
     def _fix_isbn(raw: str) -> str | None:
         """Validate and normalize an ISBN.
 
-        Returns ISBN-13 (digits only, no hyphens) if valid, None if invalid.
-        Converts ISBN-10 to ISBN-13 automatically.
-        Accepts ISBN-10 or ISBN-13 with or without hyphens.
+        Returns:
+            ISBN-13 (digits only, no hyphens) if valid, None if invalid.
+            Converts ISBN-10 to ISBN-13 automatically.
+            Accepts ISBN-10 or ISBN-13 with or without hyphens.
         """
         digits = re.sub(r"[^0-9X]", "", raw.upper())
         if len(digits) == 10:
@@ -217,6 +224,7 @@ class CleanupModule(CitationModule):
         return None
 
     def process(self, text: str, context: dict) -> ProcessingResult:
+        """Apply CS1/CS2 maintenance fixes to a citation body."""
         changes = {}
         new_template_type = None
         template_type = context.get("template_type", "")
@@ -446,6 +454,7 @@ class CleanupModule(CitationModule):
 
     @staticmethod
     def _strip_extra_text(value: str, field: str) -> str:
+        """Strip leading/trailing volume/issue/page/edition prefixes from a value."""
         v = value.strip()
         v = re.sub(
             r"^(vol\.?\s*|volume\s*|v\.\s*|no\.?\s*|number\s*|issue\s*|"

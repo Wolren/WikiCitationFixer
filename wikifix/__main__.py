@@ -19,6 +19,7 @@ from pathlib import Path
 from wikifix import (
     CitationPipeline,
     Mode,
+    ApiConfig,
     AuthorModule,
     DateModule,
     IdEnrichmentModule,
@@ -29,6 +30,9 @@ from wikifix import (
     ExpandModule,
     ArchiveModule,
 )
+from wikifix.logger import get_logger, setup_logger
+
+log = get_logger()
 
 MODULE_REGISTRY = {
     "expand": ExpandModule,
@@ -44,6 +48,7 @@ MODULE_REGISTRY = {
 
 
 def build_argparser() -> argparse.ArgumentParser:
+    """Build and populate the CLI argument parser."""
     p = argparse.ArgumentParser(
         prog="python -m wikifix",
         description="Universal Wikipedia Citation Fixer - modular pipeline.",
@@ -158,6 +163,39 @@ def build_argparser() -> argparse.ArgumentParser:
         action="store_true",
         help="Start with no default modules; explicitly add each with --modules, --sort, etc.",
     )
+    p.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable verbose (debug) logging output",
+    )
+    p.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress all logging output except errors",
+    )
+    p.add_argument(
+        "--cache-dir",
+        default=None,
+        help="Directory for API response cache",
+    )
+    p.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Disable API response caching",
+    )
+    p.add_argument(
+        "--workers",
+        "-w",
+        type=int,
+        default=None,
+        help="Number of parallel workers for citation processing (default: 4)",
+    )
+    p.add_argument(
+        "--env",
+        "-e",
+        default=None,
+        help="Path to .env file with API keys for higher rate limits (NCBI_API_KEY, SEMANTIC_SCHOLAR_API_KEY, CROSSREF_EMAIL)",
+    )
     # Dynamic --no-MODULE flags for all registered modules
     for name in MODULE_REGISTRY:
         p.add_argument(
@@ -170,14 +208,17 @@ def build_argparser() -> argparse.ArgumentParser:
 
 
 def main():
+    """Entry point: parse CLI args and run the citation pipeline."""
     parser = build_argparser()
     args = parser.parse_args()
 
+    setup_logger(verbose=args.verbose, quiet=args.quiet)
+
     # --list-modules
     if args.list_modules:
-        print("Available modules:")
+        log.info("Available modules:")
         for name, cls in MODULE_REGISTRY.items():
-            print(f"  {name:12s}  {cls.description}")
+            log.info("  %-12s  %s", name, cls.description)
         sys.exit(0)
 
     # Resolve modules
@@ -211,8 +252,8 @@ def main():
 
     unknown = set(module_names) - set(MODULE_REGISTRY)
     if unknown:
-        print(f"ERROR: Unknown module(s): {', '.join(sorted(unknown))}")
-        print(f"Available: {', '.join(sorted(MODULE_REGISTRY))}")
+        log.error("ERROR: Unknown module(s): %s", ", ".join(sorted(unknown)))
+        log.error("Available: %s", ", ".join(sorted(MODULE_REGISTRY)))
         sys.exit(1)
 
     modules = [MODULE_REGISTRY[n]() for n in module_names]
@@ -221,9 +262,16 @@ def main():
     if args.enrich:
         ids_to_fetch = [i for i in ids_to_fetch if i != "issn"]
 
+    cache_dir = None if args.no_cache else (args.cache_dir or ".wikifix_cache")
+    overrides = {"cache_dir": cache_dir}
+    if args.workers is not None:
+        overrides["max_workers"] = args.workers
+    api_config = ApiConfig.from_env(args.env, **overrides)
+
     pipeline = CitationPipeline(
         modules=modules,
         mode=mode,
+        api_config=api_config,
         author_style=args.author_style,
         refresh_authors=args.refresh_authors,
         max_authors=args.max_authors,
@@ -239,12 +287,13 @@ def main():
 
     try:
         pipeline.process_file(infile, outfile)
-        print(f"\n+ Output saved to: {outfile}")
+        log.info("")
+        log.info("+ Output saved to: %s", outfile)
     except FileNotFoundError:
-        print(f"ERROR: Could not find {infile}")
+        log.error("ERROR: Could not find %s", infile)
         sys.exit(1)
     except Exception as e:
-        print(f"ERROR: {e}")
+        log.error("ERROR: %s", e)
         import traceback
 
         traceback.print_exc()

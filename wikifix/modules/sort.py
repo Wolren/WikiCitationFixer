@@ -10,6 +10,7 @@ import re
 
 from wikifix.base import CitationModule
 from wikifix.config import ProcessingResult
+from wikifix.logger import get_logger; log = get_logger()
 
 
 # Priority order — lower number = earlier position
@@ -170,7 +171,7 @@ _NUMBERED_BASES = (
 
 
 def _parse_param_name(name: str):
-    """Return (base_name, number) for a parameter name."""
+    """Return ``(base_name, number)`` for a parameter name."""
     name = name.strip().lower()
     for base in _NUMBERED_BASES:
         if name == base:
@@ -198,6 +199,8 @@ def _sort_key(param_name: str):
 
 
 class SortModule(CitationModule):
+    """Reorder parameters to Wikipedia standard order."""
+
     name = "sort"
     description = "Reorder parameters to Wikipedia standard order"
 
@@ -243,6 +246,7 @@ class SortModule(CitationModule):
         return params
 
     def process(self, text: str, context: dict) -> ProcessingResult:
+        """Reorder citation parameters to Wikipedia standard order."""
         start = text
         params = self._parse_params(text)
         if len(params) <= 1:

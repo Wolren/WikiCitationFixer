@@ -9,9 +9,14 @@ import re
 
 from wikifix.base import CitationModule
 from wikifix.config import ProcessingResult
+from wikifix.logger import get_logger
+
+log = get_logger()
 
 
 class DateModule(CitationModule):
+    """Normalize dates to Wikipedia format."""
+
     name = "dates"
     description = "Normalize dates to Wikipedia format (preserving day info)"
 
@@ -47,10 +52,12 @@ class DateModule(CitationModule):
 
     @staticmethod
     def _normalize_month(m: str) -> str:
+        """Normalize a month name to title-case (e.g. ``jan`` → ``January``)."""
         low = m.strip().lower()
         return DateModule.MONTHS_FULL.get(low, DateModule.MONTHS_SHORT.get(low, m))
 
     def _normalize(self, date: str) -> str:
+        """Convert a date string to Wikipedia format (DD Month YYYY)."""
         if not date:
             return date
 
@@ -122,6 +129,7 @@ class DateModule(CitationModule):
         return original
 
     def process(self, text: str, context: dict) -> ProcessingResult:
+        """Normalize the |date= value to Wikipedia format."""
         changes = {"date": False}
         m = re.search(r"\|\s*date\s*=\s*([^\|}]+)", text)
         if not m:

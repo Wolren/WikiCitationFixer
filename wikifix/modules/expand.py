@@ -17,6 +17,7 @@ import re
 
 from wikifix.base import CitationModule
 from wikifix.config import Mode, ProcessingResult
+from wikifix.logger import get_logger; log = get_logger()
 
 
 FIELD_ALIASES = {
@@ -27,10 +28,12 @@ FIELD_ALIASES = {
 
 
 def _has_field(text: str, field: str) -> bool:
+    """Check whether a parameter already exists in the citation body."""
     return bool(re.search(rf"\|\s*{field}\s*=", text))
 
 
 def _add_field(text: str, name: str, value: str, force: bool = False) -> str:
+    """Append or replace a parameter in the citation body."""
     if _has_field(text, name):
         if not force:
             return text
@@ -78,6 +81,7 @@ def _clean_journal(name: str) -> str:
 
 
 def _format_date_from_parts(date_parts: list) -> str:
+    """Format [year, month, day] list into Wikipedia date string."""
     if not date_parts:
         return ""
     parts = date_parts
@@ -117,6 +121,8 @@ def _format_date_string(s: str) -> str:
 
 
 class ExpandModule(CitationModule):
+    """Expand citations with metadata from external APIs."""
+
     name = "expand"
     description = "Expand citations with metadata from DOI/PMID/arXiv/ISBN"
 
@@ -325,6 +331,7 @@ class ExpandModule(CitationModule):
         return text
 
     def process(self, text: str, context: dict) -> ProcessingResult:
+        """Fill in missing citation fields from DOI/PMID/arXiv/ISBN metadata."""
         start = text
         api = context.get("api")
         mode: Mode = context.get("mode", Mode.INCREMENTAL)
@@ -379,5 +386,5 @@ class ExpandModule(CitationModule):
 
         changed = text != start
         if changed:
-            print(f"    + Expanded with metadata")
+            log.info("    + Expanded with metadata")
         return ProcessingResult(text=text, changes={"expand": changed})

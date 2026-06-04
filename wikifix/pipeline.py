@@ -6,13 +6,19 @@ citation template found in a Wikipedia wikitext source file.
 """
 
 import re
+import threading
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Set
 
 from wikifix.base import CitationModule
 from wikifix.config import Mode, ApiConfig, CitationStats
+from wikifix.logger import get_logger
 from wikifix.services import ApiClient
+
+log = get_logger()
 
 
 _STOPWORDS = frozenset(
@@ -107,13 +113,23 @@ class CitationPipeline:
     # Public API
     # ------------------------------------------------------------------
 
+    @dataclass
+    class _ProcessResult:
+        body: str
+        template_type: str
+        changes: dict[str, bool]
+        renames: dict[str, str]
+        drops: set[str]
+        idx: int
+        title: str
+
     def process_file(self, input_path: Path, output_path: Path):
         """Read wikitext, process all citations, write result."""
         self._print_header()
 
         text = input_path.read_text(encoding="utf-8")
         matches = list(self.CITATION_RE.finditer(text))
-        print(f"Found {len(matches)} citation templates\n")
+        log.info("Found %d citation templates", len(matches))
 
         # Pre-scan identifiers for duplicate detection
         first_seen = {}
@@ -126,19 +142,108 @@ class CitationPipeline:
                 first_seen[key] = m.start()
 
         stats = CitationStats(total=len(matches))
-        ref_renames = {}  # old_name -> new_name
+        ref_renames: dict[str, str] = {}
         used_ref_names: Set[str] = set(
             m.group(1) for m in re.finditer(r'<ref\s+name\s*=\s*"([^"]*)"', text)
         )
 
-        for idx, match in enumerate(reversed(matches), 1):
+        # Parallel processing
+        sorted_matches = list(enumerate(reversed(matches)))
+        results: list[_ProcessResult | None] = [None] * len(matches)
+        stats_lock = threading.Lock()
+
+        with ThreadPoolExecutor(max_workers=self.api.config.max_workers) as pool:
+            fut_map = {}
+            for sorted_idx, match in sorted_matches:
+                title = self._extract_title(match.group(1))
+                log.info("  Queuing [%d/%d] %s...", sorted_idx + 1, len(matches), title)
+                fut = pool.submit(self._process_one, match, first_seen)
+                fut_map[fut] = sorted_idx
+
+            for future in as_completed(fut_map):
+                sorted_idx = fut_map[future]
+                result = future.result()
+                results[sorted_idx] = result
+                if result is None:
+                    continue
+                # Accumulate stats under lock
+                with stats_lock:
+                    for k, v in result.changes.items():
+                        stats.module_stats[k] = stats.module_stats.get(k, 0) + (
+                            1 if v else 0
+                        )
+
+        # Sequential patch-back (reverse order preserves offsets)
+        text_buffer = list(text)
+        for sorted_idx, match in sorted_matches:
+            result = results[sorted_idx]
+            if result is None:
+                continue
+            body = result.body
+            # Apply deferred param renames and drops
+            if result.renames:
+                body = self._apply_renames(body, result.renames)
+            if result.drops:
+                body = self._apply_drops(body, result.drops)
+            # Strip ISSN when DOI present
+            if self.strip_issn and re.search(r"\|\s*doi\s*=", body):
+                body = re.sub(r"\|\s*issn\s*=[^\|}]+", "", body)
+            # Patch back into source
+            text = (
+                text[: match.start()]
+                + "{{"
+                + self._canonical_type(result.template_type)
+                + body
+                + "}}"
+                + text[match.end() :]
+            )
+            if any(result.changes.values()):
+                changed = ", ".join(k for k, v in result.changes.items() if v)
+                log.info("  -> %s", changed)
+
+        # Ref names added sequentially (uses shared used_ref_names)
+        if self.ref_names:
+            for sorted_idx, match in sorted_matches:
+                result = results[sorted_idx]
+                if result is None:
+                    continue
+                text = self._add_ref_name(
+                    text,
+                    match.start(),
+                    result.body,
+                    result.template_type,
+                    used_ref_names,
+                    ref_renames,
+                )
+
+        # Final pass: apply all ref renames globally
+        for old_name, new_name in ref_renames.items():
+            escaped = re.escape(old_name)
+            text = re.sub(
+                rf'<ref\s+name\s*=\s*"{escaped}"\s*(/?>|>)',
+                lambda m: f'<ref name="{new_name}"{m.group(1)}',
+                text,
+            )
+            text = re.sub(
+                rf"<ref\s+name\s*=\s*'{escaped}'\s*(/?>|>)",
+                lambda m: f'<ref name="{new_name}"{m.group(1)}',
+                text,
+            )
+            text = re.sub(
+                rf"<ref\s+name\s*=\s*{escaped}(\s*/?>|>)",
+                lambda m: f'<ref name="{new_name}"{m.group(1)}',
+                text,
+            )
+
+        output_path.write_text(text, encoding="utf-8")
+        self._print_summary(stats)
+
+    def _process_one(self, match, first_seen: dict) -> _ProcessResult | None:
+        """Run all modules on a single citation match (thread-safe)."""
+        try:
             body = match.group(1)
             template_type = self._detect_type(match.group(0))
             title = self._extract_title(body)
-
-            print(f"[{idx}/{len(matches)}] {title}...")
-
-            # Build context
             doi = self._extract_doi(body)
             pmid = self._extract_pmid(body)
             is_dup = False
@@ -162,9 +267,7 @@ class CitationPipeline:
                 "create_archive": self.create_archive,
                 "strip_issn": self.strip_issn,
             }
-
-            # Run module pipeline
-            overall_changes = {}
+            overall_changes: dict[str, bool] = {}
             all_renames: dict[str, str] = {}
             all_drops: set[str] = set()
             for mod in self.modules:
@@ -178,67 +281,19 @@ class CitationPipeline:
                     all_drops.update(result.drop_params)
                 overall_changes.update(result.changes)
 
-            # Apply deferred param renames and drops
-            if all_renames:
-                body = self._apply_renames(body, all_renames)
-            if all_drops:
-                body = self._apply_drops(body, all_drops)
-                overall_changes["dropped-params"] = True
-
-            # Strip ISSN when DOI present and --strip-issn is set
-            if self.strip_issn and re.search(r"\|\s*doi\s*=", body):
-                body = re.sub(r"\|\s*issn\s*=[^\|}]+", "", body)
-            for k, v in overall_changes.items():
-                stats.module_stats[k] = stats.module_stats.get(k, 0) + (1 if v else 0)
-
-            # Patch back into source
-            text = (
-                text[: match.start()]
-                + "{{"
-                + self._canonical_type(template_type)
-                + body
-                + "}}"
-                + text[match.end() :]
+            log.info("[done] %s", title)
+            return self._ProcessResult(
+                body=body,
+                template_type=template_type,
+                changes=overall_changes,
+                renames=all_renames,
+                drops=all_drops,
+                idx=match.start(),
+                title=title,
             )
-
-            # Auto-generate ref name from first author surname + year
-            if self.ref_names:
-                text = self._add_ref_name(
-                    text,
-                    match.start(),
-                    body,
-                    template_type,
-                    used_ref_names,
-                    ref_renames,
-                )
-
-            if any(overall_changes.values()):
-                changed = ", ".join(k for k, v in overall_changes.items() if v)
-                print(f"  -> {changed}")
-
-        # Final pass: apply all ref renames globally (after loop to avoid
-        # corrupting match.position offsets).
-        # Handle double-quoted, single-quoted, and unquoted name patterns.
-        for old_name, new_name in ref_renames.items():
-            escaped = re.escape(old_name)
-            text = re.sub(
-                rf'<ref\s+name\s*=\s*"{escaped}"\s*(/?>|>)',
-                lambda m: f'<ref name="{new_name}"{m.group(1)}',
-                text,
-            )
-            text = re.sub(
-                rf"<ref\s+name\s*=\s*'{escaped}'\s*(/?>|>)",
-                lambda m: f'<ref name="{new_name}"{m.group(1)}',
-                text,
-            )
-            text = re.sub(
-                rf"<ref\s+name\s*=\s*{escaped}(\s*/?>|>)",
-                lambda m: f'<ref name="{new_name}"{m.group(1)}',
-                text,
-            )
-
-        output_path.write_text(text, encoding="utf-8")
-        self._print_summary(stats)
+        except Exception as e:
+            log.error("  ERROR processing citation: %s", e)
+            return None
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -416,16 +471,19 @@ class CitationPipeline:
 
     @staticmethod
     def _extract_title(body: str) -> str:
+        """Extract the |title= value for display in progress output."""
         m = re.search(r"\|\s*title\s*=\s*([^\|]+)", body)
         return m.group(1).strip()[:60] if m else "(no title)"
 
     @staticmethod
     def _extract_doi(body: str) -> Optional[str]:
+        """Extract the |doi= value from a citation body."""
         m = re.search(r"\|\s*doi\s*=\s*([^\|}]+)", body)
         return m.group(1).strip() if m else None
 
     @staticmethod
     def _extract_pmid(body: str) -> Optional[str]:
+        """Extract the |pmid= value from a citation body."""
         m = re.search(r"\|\s*pmid\s*=\s*(\d+)", body)
         return m.group(1).strip() if m else None
 
@@ -434,31 +492,35 @@ class CitationPipeline:
     # ------------------------------------------------------------------
 
     def _print_header(self):
+        """Print a banner with pipeline configuration before processing."""
         mode_label = self.mode.name.replace("_", " ")
-        print("=" * 80)
-        print(f"WIKIFIX CITATION PIPELINE -- {mode_label}")
-        print("=" * 80)
+        log.info("=" * 80)
+        log.info("WIKIFIX CITATION PIPELINE -- %s", mode_label)
+        log.info("=" * 80)
         modules_str = ", ".join(m.name for m in self.modules)
-        print(f"Active modules: {modules_str}")
-        print(f"Author style:     {self.author_style}")
+        log.info("Active modules: %s", modules_str)
+        log.info("Author style:     %s", self.author_style)
         ma = self.max_authors if self.max_authors > 0 else "unlimited"
-        print(f"Max authors:      {ma}")
-        print(f"Refresh authors:  {self.refresh_authors}")
+        log.info("Max authors:      %s", ma)
+        log.info("Refresh authors:  %s", self.refresh_authors)
         ids = ", ".join(self.ids_to_fetch)
-        print(f"IDs to fetch:     {ids}")
-        print(
-            f"Archive scope:    {'all types' if self.force_archive_all else 'cite web/news'}"
+        log.info("IDs to fetch:     %s", ids)
+        log.info(
+            "Archive scope:    %s",
+            "all types" if self.force_archive_all else "cite web/news",
         )
-        print(f"Create archive:   {self.create_archive}")
-        print(f"Ref names:        {self.ref_names}")
-        print(f"Strip ISSN:       {self.strip_issn}")
-        print()
+        log.info("Create archive:   %s", self.create_archive)
+        log.info("Ref names:        %s", self.ref_names)
+        log.info("Strip ISSN:       %s", self.strip_issn)
+        log.info("")
 
     def _print_summary(self, stats: CitationStats):
-        print("\n" + "=" * 80)
-        print("ENHANCEMENT SUMMARY")
-        print("=" * 80)
-        print(f"Total citations processed: {stats.total}")
+        """Print per-module change counts after processing all citations."""
+        log.info("")
+        log.info("=" * 80)
+        log.info("ENHANCEMENT SUMMARY")
+        log.info("=" * 80)
+        log.info("Total citations processed: %d", stats.total)
         for k, v in sorted(stats.module_stats.items()):
-            print(f"  + {k}: {v}")
-        print("=" * 80)
+            log.info("  + %s: %d", k, v)
+        log.info("=" * 80)
