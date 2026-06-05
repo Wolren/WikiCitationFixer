@@ -36,6 +36,21 @@ from wikifix.modules.sort import SortModule
 from wikifix.modules.expand import ExpandModule
 from wikifix.modules.archive import ArchiveModule
 
+__all__ = [
+    "CitationPipeline",
+    "Mode",
+    "ApiConfig",
+    "AuthorModule",
+    "DateModule",
+    "IdEnrichmentModule",
+    "SpacingModule",
+    "CleanupModule",
+    "DedupModule",
+    "SortModule",
+    "ExpandModule",
+    "ArchiveModule",
+]
+
 __version__ = "3.0.0"
 __author__ = "Wolren"
 __license__ = "MIT"

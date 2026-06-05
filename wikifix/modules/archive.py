@@ -14,7 +14,9 @@ import re
 
 from wikifix.base import CitationModule
 from wikifix.config import Mode, ProcessingResult
-from wikifix.logger import get_logger; log = get_logger()
+from wikifix.logger import get_logger
+
+log = get_logger()
 
 _WEB_TYPES = {"cite web", "cite news"}
 
@@ -42,7 +44,6 @@ class ArchiveModule(CitationModule):
 
     def process(self, text: str, context: dict) -> ProcessingResult:
         """Add or validate archive-url/archive-date from Wayback Machine."""
-        start = text
         template_type = context.get("template_type", "")
         api = context.get("api")
         mode: Mode = context.get("mode", Mode.INCREMENTAL)

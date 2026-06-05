@@ -9,7 +9,9 @@ import re
 
 from wikifix.base import CitationModule
 from wikifix.config import ProcessingResult
-from wikifix.logger import get_logger; log = get_logger()
+from wikifix.logger import get_logger
+
+log = get_logger()
 
 
 class SpacingModule(CitationModule):

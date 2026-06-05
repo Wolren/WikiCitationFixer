@@ -14,16 +14,18 @@ Provides rate-limited access to:
     - Wayback Machine  (URL → archive snapshot)
 """
 
+import os
 import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 import requests
 
 from wikifix.cache import ResponseCache
-from wikifix.config import ApiConfig
+from wikifix.config import ApiConfig, Mode
 from wikifix.logger import get_logger
 
 log = get_logger()
@@ -32,14 +34,21 @@ log = get_logger()
 class ApiClient:
     """Rate-limited API client with optional caching and concurrent fetch support."""
 
-    def __init__(self, config: ApiConfig = ApiConfig()):
-        """Initialize the API client with rate-limit, cache, and concurrency config."""
+    def __init__(self, config: ApiConfig = ApiConfig(), mode: Mode = Mode.INCREMENTAL):
+        """Initialize the API client with rate-limit, cache, concurrency, and mode."""
         self.config = config
+        self.mode = mode
         self._last_call = 0.0
         self._lock = threading.Lock()
         self._cache: ResponseCache | None = None
-        if config.cache_dir:
-            self._cache = ResponseCache(config.cache_dir, config.cache_ttl)
+        cd = config.cache_dir
+        if cd is None:
+            cd = os.path.join(
+                os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")), "wikifix"
+            )
+        if cd:
+            self._cache = ResponseCache(cd, config.cache_ttl)
+        # cd == "" means cache disabled
 
     def _rate_limit(self, delay: float):
         """Sleep if needed to respect the per-API rate-limit delay (thread-safe)."""
@@ -52,8 +61,8 @@ class ApiClient:
     # ---- Caching helpers ----
 
     def _cached_get(self, key: str) -> Any | None:
-        """Return cached value, logging a hit."""
-        if not self._cache:
+        """Return cached value, logging a hit. Skips cache in FORCE_REFRESH mode."""
+        if self.mode == Mode.FORCE_REFRESH or not self._cache:
             return None
         val = self._cache.get(key)
         if val is not None:
@@ -64,6 +73,12 @@ class ApiClient:
         """Store value in cache."""
         if self._cache:
             self._cache.set(key, value)
+
+    def clear_cache(self) -> None:
+        """Wipe the entire disk cache."""
+        if self._cache:
+            self._cache.clear()
+            log.info("Cache cleared.")
 
     # ---- Concurrent fetch helper ----
 
@@ -166,7 +181,7 @@ class ApiClient:
                 return True
         return False
 
-    def doi_to_authors(self, doi: str) -> list:
+    def doi_to_authors(self, doi: str) -> list[tuple[str, str]]:
         """Fetch full author names from CrossRef by DOI."""
         msg = self.fetch_crossref(doi)
         if msg:
@@ -176,7 +191,7 @@ class ApiClient:
 
     # ---- NCBI E-utilities ----
 
-    def _ncbi_params(self, **kwargs) -> dict:
+    def _ncbi_params(self, **kwargs) -> dict[str, str]:
         """Build query params for NCBI, appending API key if configured."""
         params = dict(kwargs)
         if self.config.ncbi_api_key:
@@ -230,7 +245,7 @@ class ApiClient:
             log.warning("  PMC fetch failed for PMID %s: %s", pmid, e)
         return None
 
-    def doi_to_authors_pubmed(self, doi: str) -> list:
+    def doi_to_authors_pubmed(self, doi: str) -> list[tuple[str, str]]:
         """Fetch author names from PubMed (fallback when CrossRef returns only initials)."""
         pmid = self.doi_to_pmid(doi)
         if not pmid:
@@ -354,8 +369,10 @@ class ApiClient:
                         else:
                             authors.append((name, ""))
                 doi_el = entry.find("arxiv:doi", ns)
-                doi = doi_el.text.strip() if doi_el is not None else None
-                return {
+                doi = (
+                    doi_el.text.strip() if doi_el is not None and doi_el.text else None
+                )
+                result = {
                     "title": title,
                     "authors": authors,
                     "date": published[:10] if published else None,
@@ -485,7 +502,7 @@ class ApiClient:
 
     # ---- OpenAlex ----
 
-    def doi_to_authors_openalex(self, doi: str) -> list:
+    def doi_to_authors_openalex(self, doi: str) -> list[tuple[str, str]]:
         """Fetch author names from OpenAlex by DOI."""
         doi = self.clean_doi(doi)
         cache_key = ResponseCache.make_key("openalex", "authors", doi)
@@ -525,7 +542,7 @@ class ApiClient:
 
     # ---- DataCite ----
 
-    def doi_to_authors_datacite(self, doi: str) -> list:
+    def doi_to_authors_datacite(self, doi: str) -> list[tuple[str, str]]:
         """Fetch author names from DataCite by DOI."""
         doi = self.clean_doi(doi)
         cache_key = ResponseCache.make_key("datacite", "authors", doi)

@@ -10,7 +10,9 @@ import re
 
 from wikifix.base import CitationModule
 from wikifix.config import ProcessingResult
-from wikifix.logger import get_logger; log = get_logger()
+from wikifix.logger import get_logger
+
+log = get_logger()
 
 
 # Priority order — lower number = earlier position
@@ -219,7 +221,6 @@ class SortModule(CitationModule):
             val_start = idx + m.end()
             depth = 0
             in_link = False
-            in_value = True
             end = val_start
             while end < len(body):
                 ch = body[end]

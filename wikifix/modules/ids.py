@@ -17,7 +17,9 @@ from typing import Set
 
 from wikifix.base import CitationModule
 from wikifix.config import Mode, ProcessingResult
-from wikifix.logger import get_logger; log = get_logger()
+from wikifix.logger import get_logger
+
+log = get_logger()
 
 
 class IdEnrichmentModule(CitationModule):

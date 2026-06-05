@@ -39,8 +39,6 @@ class ResponseCache:
     def get(self, key: str) -> Any | None:
         """Return cached value, or None if missing / expired."""
         try:
-            value, expiry = self._cache.get(key, default=(None, None)), None
-            # diskcache handles TTL natively — just use get()
             return self._cache.get(key)
         except Exception:
             return None

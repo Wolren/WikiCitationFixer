@@ -22,7 +22,9 @@ from typing import List, Optional, Tuple
 
 from wikifix.base import CitationModule
 from wikifix.config import ProcessingResult
-from wikifix.logger import get_logger; log = get_logger()
+from wikifix.logger import get_logger
+
+log = get_logger()
 
 
 def _param_re(name: str) -> str:
@@ -246,28 +248,24 @@ class AuthorModule(CitationModule):
         return text if updated else text
 
     @staticmethod
-    def _try_fetch_authors(api, doi: str) -> list:
+    def _try_fetch_authors(api, doi: str) -> list[tuple[str, str]]:
         """Fetch full author names from multiple sources, returning the best result.
 
-        Tries CrossRef → OpenAlex → DataCite → PubMed, picks the one with
-        the most complete (longest) given names.
+        Tries CrossRef → OpenAlex → DataCite → PubMed in parallel, picks the
+        one with the most complete (longest) given names.
         """
-        sources = [
-            ("CrossRef", api.doi_to_authors),
-            ("OpenAlex", api.doi_to_authors_openalex),
-            ("DataCite", api.doi_to_authors_datacite),
-            ("PubMed", api.doi_to_authors_pubmed),
+        tasks = [
+            ("CrossRef", lambda d=doi: api.doi_to_authors(d)),
+            ("OpenAlex", lambda d=doi: api.doi_to_authors_openalex(d)),
+            ("DataCite", lambda d=doi: api.doi_to_authors_datacite(d)),
+            ("PubMed", lambda d=doi: api.doi_to_authors_pubmed(d)),
         ]
-        best = []
+        results = api.concurrent_fetch(tasks)
+        best: list[tuple[str, str]] = []
         best_score = 0
-        for name, fetcher in sources:
-            try:
-                result = fetcher(doi)
-            except Exception:
-                result = []
+        for result in results.values():
             if not result:
                 continue
-            # Score: total length of given names (fuller = better)
             score = sum(len(g) for _, g in result)
             if score > best_score:
                 best = result

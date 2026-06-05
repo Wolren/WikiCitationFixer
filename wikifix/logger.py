@@ -21,9 +21,9 @@ def setup_logger(verbose: bool = False, quiet: bool = False) -> logging.Logger:
 
     Override with environment variable ``WIKIFIX_LOG_LEVEL``.
     """
-    level = os.environ.get("WIKIFIX_LOG_LEVEL")
-    if level:
-        level = getattr(logging, level.upper(), logging.INFO)
+    env_level = os.environ.get("WIKIFIX_LOG_LEVEL")
+    if env_level:
+        level: int = getattr(logging, env_level.upper(), logging.INFO)
     elif quiet:
         level = logging.WARNING
     elif verbose:
@@ -37,7 +37,12 @@ def setup_logger(verbose: bool = False, quiet: bool = False) -> logging.Logger:
     if not logger.handlers:
         handler = logging.StreamHandler(sys.stdout)
         handler.setLevel(level)
-        fmt = logging.Formatter("%(message)s")
+        if verbose or os.environ.get("WIKIFIX_LOG_LEVEL"):
+            fmt = logging.Formatter(
+                "%(asctime)s [%(levelname)-7s] %(message)s", datefmt="%H:%M:%S"
+            )
+        else:
+            fmt = logging.Formatter("%(message)s")
         handler.setFormatter(fmt)
         logger.addHandler(handler)
 

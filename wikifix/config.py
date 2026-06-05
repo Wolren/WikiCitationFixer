@@ -5,7 +5,8 @@ Configuration, enums, and data models for the wikifix pipeline.
 import os
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Optional
+from pathlib import Path
+from typing import Any, Optional
 
 
 class Mode(Enum):
@@ -33,24 +34,32 @@ class ApiConfig:
     crossref_email: str = ""
     ncbi_api_key: str = ""
     semantic_scholar_api_key: str = ""
-    cache_dir: str = ""
+    cache_dir: str | None = None
     cache_ttl: int = 604800
     max_workers: int = 4
 
     @staticmethod
     def from_env(path: str | None = None, **overrides) -> "ApiConfig":
-        """Load API config from a .env file, falling back to env vars."""
-        if path:
-            try:
-                import dotenv
+        """Load API config from a .env file, falling back to env vars.
 
-                dotenv.load_dotenv(path)
-            except Exception:
-                pass
+        Warns on stderr if *path* is provided but does not exist.
+        """
+        if path:
+            if not Path(path).exists():
+                import sys as _sys
+
+                _sys.stderr.write(f"WARNING: --env file not found: {path}\n")
+            else:
+                try:
+                    import dotenv
+
+                    dotenv.load_dotenv(path)
+                except ImportError:
+                    pass
         email = os.environ.get("CROSSREF_EMAIL", "")
         ncbi_key = os.environ.get("NCBI_API_KEY", "")
         ss_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY", "")
-        cache_dir = os.environ.get("WIKIFIX_CACHE_DIR", "")
+        cache_dir = os.environ.get("WIKIFIX_CACHE_DIR") or None
         ncbi_delay = 0.1 if ncbi_key else 0.34
         ss_delay = 0.1 if ss_key else 0.5
         ua = (
@@ -58,7 +67,7 @@ class ApiConfig:
             if email
             else "WikiCitationFixer/3.0"
         )
-        kwargs = dict(
+        kwargs: dict[str, Any] = dict(
             user_agent=ua,
             ncbi_delay=ncbi_delay,
             semantic_scholar_delay=ss_delay,
@@ -69,14 +78,6 @@ class ApiConfig:
         )
         kwargs.update(overrides)
         return ApiConfig(**kwargs)
-        return ApiConfig(
-            user_agent=ua,
-            ncbi_delay=ncbi_delay,
-            semantic_scholar_delay=ss_delay,
-            crossref_email=email,
-            ncbi_api_key=ncbi_key,
-            semantic_scholar_api_key=ss_key,
-        )
 
 
 @dataclass

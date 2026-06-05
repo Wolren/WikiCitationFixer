@@ -5,13 +5,15 @@ Chains multiple CitationModules together and runs them over every
 citation template found in a Wikipedia wikitext source file.
 """
 
+from __future__ import annotations
+
 import re
 import threading
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import Any, List, Optional, Set
 
 from wikifix.base import CitationModule
 from wikifix.config import Mode, ApiConfig, CitationStats
@@ -45,6 +47,20 @@ _STOPWORDS = frozenset(
         "with",
     }
 )
+
+
+@dataclass
+class _ProcessResult:
+    """Intermediate result from processing a single citation match."""
+
+    body: str
+    template_type: str
+    changes: dict[str, bool]
+    renames: dict[str, str]
+    drops: set[str]
+    idx: int
+    title: str
+    ref_name: str | None = None
 
 
 class CitationPipeline:
@@ -99,7 +115,7 @@ class CitationPipeline:
         """
         self.modules = modules
         self.mode = mode
-        self.api = ApiClient(api_config)
+        self.api = ApiClient(api_config, mode)
         self.author_style = author_style
         self.refresh_authors = refresh_authors
         self.max_authors = max_authors
@@ -112,16 +128,6 @@ class CitationPipeline:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-
-    @dataclass
-    class _ProcessResult:
-        body: str
-        template_type: str
-        changes: dict[str, bool]
-        renames: dict[str, str]
-        drops: set[str]
-        idx: int
-        title: str
 
     def process_file(self, input_path: Path, output_path: Path):
         """Read wikitext, process all citations, write result."""
@@ -153,18 +159,44 @@ class CitationPipeline:
         stats_lock = threading.Lock()
 
         with ThreadPoolExecutor(max_workers=self.api.config.max_workers) as pool:
-            fut_map = {}
+            fut_map: dict[Any, dict[str, Any]] = {}
             for sorted_idx, match in sorted_matches:
                 title = self._extract_title(match.group(1))
                 log.info("  Queuing [%d/%d] %s...", sorted_idx + 1, len(matches), title)
                 fut = pool.submit(self._process_one, match, first_seen)
-                fut_map[fut] = sorted_idx
+                fut_map[fut] = {"idx": sorted_idx, "title": title}
 
             for future in as_completed(fut_map):
-                sorted_idx = fut_map[future]
-                result = future.result()
+                info = fut_map[future]
+                sorted_idx = info["idx"]
+                title = info["title"]
+                try:
+                    result = future.result(timeout=120)
+                except TimeoutError:
+                    log.warning(
+                        "  Citation timed out [%d/%d] %s",
+                        sorted_idx + 1,
+                        len(matches),
+                        title,
+                    )
+                    result = None
+                except Exception as exc:
+                    log.warning(
+                        "  Citation failed [%d/%d] %s: %s",
+                        sorted_idx + 1,
+                        len(matches),
+                        title,
+                        exc,
+                    )
+                    result = None
                 results[sorted_idx] = result
                 if result is None:
+                    log.warning(
+                        "  No result for [%d/%d] %s",
+                        sorted_idx + 1,
+                        len(matches),
+                        title,
+                    )
                     continue
                 # Accumulate stats under lock
                 with stats_lock:
@@ -174,7 +206,6 @@ class CitationPipeline:
                         )
 
         # Sequential patch-back (reverse order preserves offsets)
-        text_buffer = list(text)
         for sorted_idx, match in sorted_matches:
             result = results[sorted_idx]
             if result is None:
@@ -214,6 +245,7 @@ class CitationPipeline:
                     result.template_type,
                     used_ref_names,
                     ref_renames,
+                    existing=result.ref_name,
                 )
 
         # Final pass: apply all ref renames globally
@@ -281,8 +313,16 @@ class CitationPipeline:
                     all_drops.update(result.drop_params)
                 overall_changes.update(result.changes)
 
+            # Extract ref name from the original input text
+            _orig_prefix = match.string[: match.start()]
+            _ref_m = re.search(r"<ref\s*([^>]*)>\s*$", _orig_prefix)
+            _ref_name = None
+            if _ref_m:
+                _nm = re.search(r'name\s*=\s*"([^"]*)"', _ref_m.group(1), re.IGNORECASE)
+                _ref_name = _nm.group(1) if _nm else None
+
             log.info("[done] %s", title)
-            return self._ProcessResult(
+            return _ProcessResult(
                 body=body,
                 template_type=template_type,
                 changes=overall_changes,
@@ -290,6 +330,7 @@ class CitationPipeline:
                 drops=all_drops,
                 idx=match.start(),
                 title=title,
+                ref_name=_ref_name,
             )
         except Exception as e:
             log.error("  ERROR processing citation: %s", e)
@@ -351,21 +392,27 @@ class CitationPipeline:
         template_type: str,
         used_names: Set[str],
         renames: dict,
+        existing: str | None = None,
     ) -> str:
         """Generate a ref name from first author surname + year if missing.
 
         Populates *renames* with ``{old_name: new_name}`` for deferred
         global short-ref replacement.
         *used_names* tracks every name already assigned to prevent collisions.
+        *existing* is the current ref name (or None to auto-detect from text).
         """
-        # Find the <ref ...> tag preceding the citation
-        prefix = text[:pos]
-        ref_m = re.search(r"<ref\s*([^>]*)>\s*$", prefix)
-        if not ref_m:
-            return text
-        attrs = ref_m.group(1)
-        name_m = re.search(r'name\s*=\s*"([^"]*)"', attrs, re.IGNORECASE)
-        existing_name = name_m.group(1) if name_m else None
+        # Determine the ref tag content and existing name
+        ref_tag = f'<ref name="{existing}">' if existing else None
+        if ref_tag is None:
+            prefix = text[:pos]
+            ref_m = re.search(r"<ref\s*([^>]*)>\s*$", prefix)
+            if not ref_m:
+                return text
+            attrs = ref_m.group(1).strip()
+            name_m = re.search(r'name\s*=\s*"([^"]*)"', attrs, re.IGNORECASE)
+            existing = name_m.group(1) if name_m else None
+            ref_tag = ref_m.group(0)
+        existing_name = existing
 
         # Extract first author surname
         name = None
@@ -430,6 +477,9 @@ class CitationPipeline:
             else:
                 return text
 
+        if ref_name is None:
+            return text
+
         # Wikipedia rejects ref names that are simple integers
         if ref_name.isdigit():
             ref_name = f"ref-{ref_name}"
@@ -443,12 +493,10 @@ class CitationPipeline:
         used_names.add(ref_name)
 
         # Insert name into the <ref> tag
-        old_ref = ref_m.group(0)
         if existing_name:
-            new_ref = old_ref.replace(f'name="{existing_name}"', f'name="{ref_name}"')
+            text = text.replace(f'name="{existing_name}"', f'name="{ref_name}"', 1)
         else:
-            new_ref = f'<ref name="{ref_name}">'
-        text = text[: pos - len(old_ref)] + new_ref + text[pos:]
+            text = text[: pos - len(ref_tag)] + f'<ref name="{ref_name}">' + text[pos:]
 
         # Record rename for deferred global short-ref replacement
         if existing_name and existing_name != ref_name:

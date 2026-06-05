@@ -25,7 +25,9 @@ import re
 
 from wikifix.base import CitationModule
 from wikifix.config import ProcessingResult
-from wikifix.logger import get_logger; log = get_logger()
+from wikifix.logger import get_logger
+
+log = get_logger()
 
 # Deprecated CS1/CS2 parameters and their replacements (if any)
 _DEPRECATED = {
@@ -153,21 +155,21 @@ class CleanupModule(CitationModule):
                 if not digits[i].isdigit():
                     return None
                 total += int(digits[i]) * (10 - i)
-            check = digits[9]
-            expected = 11 - (total % 11)
+            orig_check = digits[9]
+            expected: int | str = 11 - (total % 11)
             if expected == 11:
                 expected = 0
             elif expected == 10:
                 expected = "X"
-            if str(expected) != check:
+            if str(expected) != orig_check:
                 return None
             isbn13 = "978" + digits[:9]
             total = 0
             for i, ch in enumerate(isbn13):
                 w = 1 if i % 2 == 0 else 3
                 total += int(ch) * w
-            check = (10 - (total % 10)) % 10
-            return isbn13 + str(check)
+            calc_check = (10 - (total % 10)) % 10
+            return isbn13 + str(calc_check)
         elif len(digits) == 13:
             total = 0
             for i in range(12):
@@ -175,8 +177,8 @@ class CleanupModule(CitationModule):
                     return None
                 w = 1 if i % 2 == 0 else 3
                 total += int(digits[i]) * w
-            check = (10 - (total % 10)) % 10
-            if int(digits[12]) == check:
+            calc_check = (10 - (total % 10)) % 10
+            if int(digits[12]) == calc_check:
                 return digits  # return normalized digit-only form
             return None
         return None
@@ -231,8 +233,8 @@ class CleanupModule(CitationModule):
         t = template_type.lower()
 
         # --- 0. Convert {{citation}} to specific template ---
-        rename_params = {}
-        drop_params = set()
+        rename_params: dict[str, str] = {}
+        drop_params: set[str] = set()
         detected = None
         if t == "citation":
             detected = self._detect_citation_type(text)

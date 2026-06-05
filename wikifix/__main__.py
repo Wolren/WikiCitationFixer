@@ -29,6 +29,7 @@ from wikifix import (
     CleanupModule,
     ExpandModule,
     ArchiveModule,
+    __version__,
 )
 from wikifix.logger import get_logger, setup_logger
 
@@ -196,6 +197,16 @@ def build_argparser() -> argparse.ArgumentParser:
         default=None,
         help="Path to .env file with API keys for higher rate limits (NCBI_API_KEY, SEMANTIC_SCHOLAR_API_KEY, CROSSREF_EMAIL)",
     )
+    p.add_argument(
+        "--clear-cache",
+        action="store_true",
+        help="Wipe the API response disk cache and exit",
+    )
+    p.add_argument(
+        "--version",
+        action="store_true",
+        help="Show version and exit",
+    )
     # Dynamic --no-MODULE flags for all registered modules
     for name in MODULE_REGISTRY:
         p.add_argument(
@@ -214,11 +225,25 @@ def main():
 
     setup_logger(verbose=args.verbose, quiet=args.quiet)
 
+    # --version
+    if args.version:
+        print(f"WikiCitationFixer v{__version__}")
+        sys.exit(0)
+
     # --list-modules
     if args.list_modules:
         log.info("Available modules:")
         for name, cls in MODULE_REGISTRY.items():
             log.info("  %-12s  %s", name, cls.description)
+        sys.exit(0)
+
+    # --clear-cache (bootstrap a minimal ApiClient just to clear)
+    if args.clear_cache:
+        api_config = ApiConfig.from_env(args.env)
+        from wikifix.services import ApiClient
+
+        client = ApiClient(api_config)
+        client.clear_cache()
         sys.exit(0)
 
     # Resolve modules
@@ -262,8 +287,11 @@ def main():
     if args.enrich:
         ids_to_fetch = [i for i in ids_to_fetch if i != "issn"]
 
-    cache_dir = None if args.no_cache else (args.cache_dir or ".wikifix_cache")
-    overrides = {"cache_dir": cache_dir}
+    overrides = {}
+    if args.no_cache:
+        overrides["cache_dir"] = ""  # empty string = cache disabled
+    elif args.cache_dir:
+        overrides["cache_dir"] = args.cache_dir
     if args.workers is not None:
         overrides["max_workers"] = args.workers
     api_config = ApiConfig.from_env(args.env, **overrides)
