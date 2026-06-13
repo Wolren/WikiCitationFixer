@@ -1,4 +1,3 @@
-
 from wikifix.cache import ResponseCache
 
 
