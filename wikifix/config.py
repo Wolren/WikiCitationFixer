@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 
 class Mode(Enum):
@@ -46,9 +46,9 @@ class ApiConfig:
         """
         if path:
             if not Path(path).exists():
-                import sys as _sys
+                from wikifix.logger import get_logger as _get_logger
 
-                _sys.stderr.write(f"WARNING: --env file not found: {path}\n")
+                _get_logger().warning("--env file not found: %s", path)
             else:
                 try:
                     import dotenv
@@ -86,7 +86,7 @@ class ProcessingResult:
 
     text: str
     changes: dict[str, bool]
-    new_template_type: Optional[str] = None
+    new_template_type: str | None = None
     rename_params: dict[str, str] = field(default_factory=dict)
     drop_params: set[str] = field(default_factory=set)
 

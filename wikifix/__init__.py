@@ -24,17 +24,17 @@ Usage:
     python -m wikifix --help
 """
 
-from wikifix.pipeline import CitationPipeline
-from wikifix.config import Mode, ApiConfig
-from wikifix.modules.authors import AuthorModule
-from wikifix.modules.dates import DateModule
-from wikifix.modules.ids import IdEnrichmentModule
-from wikifix.modules.spacing import SpacingModule
-from wikifix.modules.cleanup import CleanupModule
-from wikifix.modules.dedup import DedupModule
-from wikifix.modules.sort import SortModule
-from wikifix.modules.expand import ExpandModule
+from wikifix.config import ApiConfig, Mode
 from wikifix.modules.archive import ArchiveModule
+from wikifix.modules.authors import AuthorModule
+from wikifix.modules.cleanup import CleanupModule
+from wikifix.modules.dates import DateModule
+from wikifix.modules.dedup import DedupModule
+from wikifix.modules.expand import ExpandModule
+from wikifix.modules.ids import IdEnrichmentModule
+from wikifix.modules.sort import SortModule
+from wikifix.modules.spacing import SpacingModule
+from wikifix.pipeline import CitationPipeline
 
 __all__ = [
     "CitationPipeline",

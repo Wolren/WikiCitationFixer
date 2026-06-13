@@ -1,14 +1,7 @@
-import re
-from pathlib import Path
-
-import pytest
-
-from wikifix.config import ApiConfig, Mode
-from wikifix.pipeline import CitationPipeline
-from wikifix.modules.spacing import SpacingModule
+from wikifix.config import Mode
 from wikifix.modules.dates import DateModule
-from wikifix.modules.dedup import DedupModule
-from wikifix.modules.sort import SortModule
+from wikifix.modules.spacing import SpacingModule
+from wikifix.pipeline import CitationPipeline
 
 
 class TestCitationRegex:
@@ -156,7 +149,7 @@ class TestPipelineRefNames:
 
     def test_upgrades_bare_surname_name(self):
         pipeline = self._make_pipeline()
-        text = '<ref name="Smith">{{cite journal |last=Smith |year=2024 |title=Test}}</ref>'
+        text = '<ref name="Smith">{{cite journal |last=Smith |year=2024 |title=Test}}</ref>'  # noqa: E501
         result = pipeline._add_ref_name(
             text,
             text.index("{{cite"),
@@ -169,7 +162,7 @@ class TestPipelineRefNames:
 
     def test_skips_meaningful_name(self):
         pipeline = self._make_pipeline()
-        text = '<ref name="Jones2023">{{cite journal |last=Smith |year=2024 |title=Test}}</ref>'
+        text = '<ref name="Jones2023">{{cite journal |last=Smith |year=2024 |title=Test}}</ref>'  # noqa: E501
         renames = {}
         result = pipeline._add_ref_name(
             text,
@@ -200,7 +193,7 @@ class TestPipelineRefNames:
 
     def test_falls_back_to_website_domain(self):
         pipeline = self._make_pipeline()
-        text = "<ref>{{cite web |url=https://www.example.com/article |title=My Page}}</ref>"
+        text = "<ref>{{cite web |url=https://www.example.com/article |title=My Page}}</ref>"  # noqa: E501
         result = pipeline._add_ref_name(
             text,
             text.index("{{cite"),

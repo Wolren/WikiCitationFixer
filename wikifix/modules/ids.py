@@ -13,7 +13,6 @@ context key (default: issn, pmid, pmc, s2cid).
 """
 
 import re
-from typing import Set
 
 from wikifix.base import CitationModule
 from wikifix.config import Mode, ProcessingResult
@@ -29,11 +28,11 @@ class IdEnrichmentModule(CitationModule):
     description = "Enrich citations with PMID, PMC, ISSN, S2CID via DOI"
 
     def process(self, text: str, context: dict) -> ProcessingResult:
-        """Fetch and add missing identifiers (ISSN, PMID, PMC, S2CID) using existing DOI."""
+        """Fetch missing identifiers (ISSN, PMID, PMC, S2CID) from existing DOI."""
         changes = {k: False for k in ("issn", "pmid", "pmc", "s2cid", "doi-access")}
         api = context.get("api")
         mode: Mode = context.get("mode", Mode.INCREMENTAL)
-        wanted: Set[str] = set(
+        wanted: set[str] = set(
             context.get("ids_to_fetch", ["issn", "pmid", "pmc", "s2cid"])
         )
 

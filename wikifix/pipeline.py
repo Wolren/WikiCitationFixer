@@ -13,10 +13,10 @@ import urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, List, Optional, Set
+from typing import Any
 
 from wikifix.base import CitationModule
-from wikifix.config import Mode, ApiConfig, CitationStats
+from wikifix.config import ApiConfig, CitationStats, Mode
 from wikifix.logger import get_logger
 from wikifix.services import ApiClient
 
@@ -75,13 +75,13 @@ class CitationPipeline:
 
     def __init__(
         self,
-        modules: List[CitationModule],
+        modules: list[CitationModule],
         mode: Mode = Mode.INCREMENTAL,
         api_config: ApiConfig = ApiConfig(),
         author_style: str = "normal",
         refresh_authors: bool = False,
         max_authors: int = 6,
-        ids_to_fetch: Optional[List[str]] = None,
+        ids_to_fetch: list[str] | None = None,
         force_archive_all: bool = False,
         create_archive: bool = False,
         ref_names: bool = False,
@@ -149,7 +149,7 @@ class CitationPipeline:
 
         stats = CitationStats(total=len(matches))
         ref_renames: dict[str, str] = {}
-        used_ref_names: Set[str] = set(
+        used_ref_names: set[str] = set(
             m.group(1) for m in re.finditer(r'<ref\s+name\s*=\s*"([^"]*)"', text)
         )
 
@@ -270,7 +270,7 @@ class CitationPipeline:
         output_path.write_text(text, encoding="utf-8")
         self._print_summary(stats)
 
-    def _process_one(self, match, first_seen: dict) -> _ProcessResult | None:
+    def _process_one(self, match: re.Match, first_seen: dict) -> _ProcessResult | None:
         """Run all modules on a single citation match (thread-safe)."""
         try:
             body = match.group(1)
@@ -390,7 +390,7 @@ class CitationPipeline:
         pos: int,
         body: str,
         template_type: str,
-        used_names: Set[str],
+        used_names: set[str],
         renames: dict,
         existing: str | None = None,
     ) -> str:
@@ -524,13 +524,13 @@ class CitationPipeline:
         return m.group(1).strip()[:60] if m else "(no title)"
 
     @staticmethod
-    def _extract_doi(body: str) -> Optional[str]:
+    def _extract_doi(body: str) -> str | None:
         """Extract the |doi= value from a citation body."""
         m = re.search(r"\|\s*doi\s*=\s*([^\|}]+)", body)
         return m.group(1).strip() if m else None
 
     @staticmethod
-    def _extract_pmid(body: str) -> Optional[str]:
+    def _extract_pmid(body: str) -> str | None:
         """Extract the |pmid= value from a citation body."""
         m = re.search(r"\|\s*pmid\s*=\s*(\d+)", body)
         return m.group(1).strip() if m else None

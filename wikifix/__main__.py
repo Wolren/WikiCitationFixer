@@ -12,23 +12,23 @@ Usage:
     python -m wikifix --help
 """
 
-import sys
 import argparse
+import sys
 from pathlib import Path
 
 from wikifix import (
-    CitationPipeline,
-    Mode,
     ApiConfig,
-    AuthorModule,
-    DateModule,
-    IdEnrichmentModule,
-    SpacingModule,
-    SortModule,
-    DedupModule,
-    CleanupModule,
-    ExpandModule,
     ArchiveModule,
+    AuthorModule,
+    CitationPipeline,
+    CleanupModule,
+    DateModule,
+    DedupModule,
+    ExpandModule,
+    IdEnrichmentModule,
+    Mode,
+    SortModule,
+    SpacingModule,
     __version__,
 )
 from wikifix.logger import get_logger, setup_logger
@@ -56,15 +56,15 @@ def build_argparser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  python -m wikifix                         # default: expand + format + archive\n"
-            "  python -m wikifix --enrich                # sort + cleanup + dedup + refresh authors\n"
+            "  python -m wikifix                         # default pipeline\n"
+            "  python -m wikifix --enrich                # sort + cleanup + dedup\n"
             "  python -m wikifix --dedup                 # detect duplicate citations\n"
             "  python -m wikifix --modules spacing       # whitespace only\n"
             "  python -m wikifix --modules authors,sort  # convert + sort authors\n"
             "  python -m wikifix --force --ids issn,pmid\n"
             "  python -m wikifix --force-archive         # archive all template types\n"
             "  python -m wikifix --ref-names             # auto-name unnamed refs\n"
-            "  python -m wikifix --no-spacing            # exclude spacing from defaults\n"
+            "  python -m wikifix --no-spacing            # exclude spacing\n"
             "  python -m wikifix --list-modules\n"
         ),
     )
@@ -119,7 +119,7 @@ def build_argparser() -> argparse.ArgumentParser:
         "--max-authors",
         type=int,
         default=6,
-        help="Maximum authors to output (0 = unlimited, default: 6, Wikipedia convention)",
+        help="Maximum authors (0 = unlimited, default: 6)",
     )
     p.add_argument(
         "--force",
@@ -162,7 +162,7 @@ def build_argparser() -> argparse.ArgumentParser:
     p.add_argument(
         "--bare",
         action="store_true",
-        help="Start with no default modules; explicitly add each with --modules, --sort, etc.",
+        help="Start with no default modules; add each explicitly",
     )
     p.add_argument(
         "--verbose",
@@ -195,7 +195,7 @@ def build_argparser() -> argparse.ArgumentParser:
         "--env",
         "-e",
         default=None,
-        help="Path to .env file with API keys for higher rate limits (NCBI_API_KEY, SEMANTIC_SCHOLAR_API_KEY, CROSSREF_EMAIL)",
+        help="Path to .env file with API keys for higher rate limits",
     )
     p.add_argument(
         "--clear-cache",
@@ -313,12 +313,32 @@ def main():
     infile = Path(args.input)
     outfile = Path(args.output)
 
+    if not infile.exists():
+        log.error("ERROR: Input file not found: %s", infile)
+        sys.exit(1)
+
+    max_size = 500 * 1024 * 1024  # 500 MB
+    if infile.stat().st_size > max_size:
+        log.error(
+            "ERROR: Input file too large (%.1f MB > %d MB limit)",
+            infile.stat().st_size / (1024 * 1024),
+            max_size // (1024 * 1024),
+        )
+        sys.exit(1)
+
+    try:
+        outfile.parent.mkdir(parents=True, exist_ok=True)
+        outfile.touch(exist_ok=True)
+    except OSError as e:
+        log.error("ERROR: Cannot write to output path %s: %s", outfile, e)
+        sys.exit(1)
+
     try:
         pipeline.process_file(infile, outfile)
         log.info("")
         log.info("+ Output saved to: %s", outfile)
     except FileNotFoundError:
-        log.error("ERROR: Could not find %s", infile)
+        log.error("ERROR: Could not read %s during processing", infile)
         sys.exit(1)
     except Exception as e:
         log.error("ERROR: %s", e)

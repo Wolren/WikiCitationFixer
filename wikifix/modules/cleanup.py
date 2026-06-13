@@ -47,7 +47,7 @@ _VALID_URL_STATUS = {"live", "dead", "unfit", "usurped", "bot: unknown"}
 
 _ARCHIVED_COPY_PATTERNS = re.compile(
     r"^(archived\s+copy|untitled|no\s+title|\[no\s+title\]|resumo|"
-    r"sin título|senza titolo|ohne titel|标题|タイトル)",  # common non-English placeholders
+    r"sin título|senza titolo|ohne titel|标题|タイトル)",
     re.IGNORECASE,
 )
 

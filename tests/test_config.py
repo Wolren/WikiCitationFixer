@@ -1,7 +1,3 @@
-import os
-import sys
-from pathlib import Path
-
 import pytest
 
 from wikifix.config import ApiConfig, CitationStats, Mode, ProcessingResult
@@ -61,11 +57,9 @@ class TestApiConfig:
         assert cfg.semantic_scholar_delay == 0.1
         assert cfg.cache_dir == "/tmp/wikifix_cache"
 
-    def test_from_env_warns_missing_path(self, capsys):
+    def test_from_env_warns_missing_path(self, caplog):
         ApiConfig.from_env("/nonexistent/path/.env")
-        captured = capsys.readouterr()
-        assert "WARNING" in captured.err
-        assert ".env" in captured.err
+        assert "env file not found" in caplog.text
 
     def test_from_env_with_overrides(self):
         cfg = ApiConfig.from_env(cache_dir="/custom/cache", max_workers=8)

@@ -56,3 +56,14 @@ htmlcov/
 
 # Local env with API keys (do not share)
 .env
+
+# Wikifix runtime
+.wikifix_cache/
+cache.db
+test_cache/
+*.db
+
+# Coverage
+.coverage
+htmlcov/
+.coverage.*

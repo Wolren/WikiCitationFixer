@@ -82,7 +82,7 @@ def _clean_journal(name: str) -> str:
     return result if result else name.strip()
 
 
-def _format_date_from_parts(date_parts: list) -> str:
+def _format_date_from_parts(date_parts: list[int]) -> str:
     """Format [year, month, day] list into Wikipedia date string."""
     if not date_parts:
         return ""

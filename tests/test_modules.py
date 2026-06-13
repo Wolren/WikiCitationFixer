@@ -1,5 +1,3 @@
-import pytest
-
 from wikifix.config import ApiConfig, Mode
 from wikifix.modules.archive import ArchiveModule
 from wikifix.modules.authors import AuthorModule
@@ -153,7 +151,7 @@ class TestAuthorModule:
 
     def test_max_authors_truncation(self):
         mod = AuthorModule()
-        body = " | last1 = A | first1 = A1 | last2 = B | first2 = B1 | last3 = C | first3 = C1"
+        body = " | last1 = A | first1 = A1 | last2 = B | first2 = B1 | last3 = C | first3 = C1"  # noqa: E501
         result = mod.process(
             body, _make_context({"author_style": "vancouver", "max_authors": 2})
         )

@@ -18,7 +18,6 @@ Diagnostic-only checks (flag issues without modifying):
 
 import re
 import unicodedata
-from typing import List, Optional, Tuple
 
 from wikifix.base import CitationModule
 from wikifix.config import ProcessingResult
@@ -61,7 +60,7 @@ class AuthorModule(CitationModule):
     """Convert between Vancouver and normal author styles."""
 
     name = "authors"
-    description = "Convert between Vancouver (|vauthors=) and normal (|last=/|first=) author styles"
+    description = "Convert between Vancouver and normal author styles"
 
     # ------------------------------------------------------------------
     #  Vancouver → normal helpers
@@ -80,7 +79,7 @@ class AuthorModule(CitationModule):
         )
 
     @staticmethod
-    def _parse_vauthors(vauthors: str) -> List[Tuple[str, str]]:
+    def _parse_vauthors(vauthors: str) -> list[tuple[str, str]]:
         """Parse a vauthors string into (last, initials) pairs.
 
         Handles "Smith JA, Doe JB, et al" → [("Smith", "JA"), ("Doe", "JB")]
@@ -101,7 +100,7 @@ class AuthorModule(CitationModule):
     @staticmethod
     def _vauthors_to_lastfirst(
         text: str,
-        full_names: Optional[List[Tuple[str, str]]] = None,
+        full_names: list[tuple[str, str]] | None = None,
         max_authors: int = 6,
     ) -> str:
         """Replace |vauthors=... with |lastN=/|firstN= pairs.
@@ -170,7 +169,7 @@ class AuthorModule(CitationModule):
         if re.search(r"\|\s*vauthors\s*=", text):
             return text
 
-        authors: List[Tuple[str, str]] = []
+        authors: list[tuple[str, str]] = []
         for i in range(1, 13):
             lk = f"last{i}"
             fk = f"first{i}"
@@ -209,9 +208,9 @@ class AuthorModule(CitationModule):
 
     @staticmethod
     def _enrich_lastfirst(
-        text: str, full_names: List[Tuple[str, str]], max_authors: int = 6
+        text: str, full_names: list[tuple[str, str]], max_authors: int = 6
     ) -> str:
-        """Replace abbreviated first names in existing last/first pairs with full names from sources."""
+        """Replace abbreviated first names with full names from external sources."""
         pairs = []
         for i in range(1, 13):
             lm = re.search(_param_re(f"last{i}"), text)

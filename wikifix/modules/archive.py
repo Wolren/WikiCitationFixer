@@ -130,26 +130,6 @@ class ArchiveModule(CitationModule):
         if mode == Mode.INCREMENTAL and re.search(r"\|\s*archive-url\s*=", text):
             return ProcessingResult(text=text, changes=changes)
 
-        # Check Wayback Machine (plus optional snapshot creation)
-        result = api.check_wayback(url)
-
-        # Optionally create a new snapshot if none exists
-        if not result and create_archive:
-            log.info(
-                "    + No existing snapshot, submitting to Wayback for archiving..."
-            )
-            if api.save_wayback(url):
-                result = api.check_wayback(url)
-                if result:
-                    log.info("    + Snapshot created successfully")
-                else:
-                    log.info("    + Save submitted but snapshot not yet available")
-            else:
-                log.warning("    + Wayback save request failed")
-
-        if not result:
-            return ProcessingResult(text=text, changes=changes)
-
         archive_url, archive_date = result
 
         # Remove existing archive params in force mode
@@ -168,11 +148,13 @@ class ArchiveModule(CitationModule):
             if resp.status_code in (404, 410):
                 url_status = "dead"
         except Exception:
-            pass
+            log.debug("    + URL probe failed for %s (assuming live)", url)
 
         text = (
             text
-            + f" | archive-url = {archive_url} | archive-date = {archive_date} | url-status = {url_status}"
+            + f" | archive-url = {archive_url}"
+            + f" | archive-date = {archive_date}"
+            + f" | url-status = {url_status}"
         )
         action = "Replaced" if mode == Mode.FORCE_REFRESH else "Added"
         log.info(

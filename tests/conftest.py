@@ -20,12 +20,12 @@ def incremental_mode():
 
 @pytest.fixture
 def sample_wikitext():
-    return """<ref name="Smith2024">{{cite journal |last=Smith |first=John A. |title=Test Article |journal=Test Journal |volume=10 |issue=2 |pages=100-110 |date=2024 |doi=10.1000/xyz123}}</ref>"""
+    return """<ref name="Smith2024">{{cite journal |last=Smith |first=John A. |title=Test Article |journal=Test Journal |volume=10 |issue=2 |pages=100-110 |date=2024 |doi=10.1000/xyz123}}</ref>"""  # noqa: E501
 
 
 @pytest.fixture
 def sample_body():
-    return """ |last=Smith |first=John A. |title=Test Article |journal=Test Journal |volume=10 |issue=2 |pages=100-110 |date=2024 |doi=10.1000/xyz123"""
+    return """ |last=Smith |first=John A. |title=Test Article |journal=Test Journal |volume=10 |issue=2 |pages=100-110 |date=2024 |doi=10.1000/xyz123"""  # noqa: E501
 
 
 @pytest.fixture

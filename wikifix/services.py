@@ -18,9 +18,10 @@ import os
 import re
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 import requests
 
@@ -140,7 +141,7 @@ class ApiClient:
 
     # ---- CrossRef ----
 
-    def fetch_crossref(self, doi: str) -> Optional[dict]:
+    def fetch_crossref(self, doi: str) -> dict | None:
         """Fetch CrossRef work metadata for a DOI."""
         doi = self.clean_doi(doi)
         cache_key = ResponseCache.make_key("crossref", "work", doi)
@@ -162,7 +163,7 @@ class ApiClient:
             log.warning("  CrossRef fetch failed for DOI %s: %s", doi, e)
         return None
 
-    def doi_to_issn(self, doi: str) -> Optional[str]:
+    def doi_to_issn(self, doi: str) -> str | None:
         """Look up ISSN from CrossRef by DOI."""
         msg = self.fetch_crossref(doi)
         if msg:
@@ -198,7 +199,7 @@ class ApiClient:
             params["api_key"] = self.config.ncbi_api_key
         return params
 
-    def doi_to_pmid(self, doi: str) -> Optional[str]:
+    def doi_to_pmid(self, doi: str) -> str | None:
         """Look up PubMed ID from NCBI E-utilities by DOI."""
         doi = self.clean_doi(doi)
         cache_key = ResponseCache.make_key("ncbi", "doi_to_pmid", doi)
@@ -222,7 +223,7 @@ class ApiClient:
             log.warning("  PMID fetch failed for DOI %s: %s", doi, e)
         return None
 
-    def pmid_to_pmc(self, pmid: str) -> Optional[str]:
+    def pmid_to_pmc(self, pmid: str) -> str | None:
         """Look up PMC ID from NCBI ID Converter by PMID."""
         cache_key = ResponseCache.make_key("ncbi", "pmid_to_pmc", pmid)
         cached = self._cached_get(cache_key)
@@ -246,7 +247,7 @@ class ApiClient:
         return None
 
     def doi_to_authors_pubmed(self, doi: str) -> list[tuple[str, str]]:
-        """Fetch author names from PubMed (fallback when CrossRef returns only initials)."""
+        """Fetch author names from PubMed as fallback for abbreviated CrossRef names."""
         pmid = self.doi_to_pmid(doi)
         if not pmid:
             return []
@@ -281,7 +282,7 @@ class ApiClient:
 
     # ---- Europe PMC ----
 
-    def fetch_europepmc(self, doi: str) -> Optional[dict]:
+    def fetch_europepmc(self, doi: str) -> dict | None:
         """Fetch full metadata from Europe PMC by DOI."""
         doi = self.clean_doi(doi)
         cache_key = ResponseCache.make_key("europepmc", "by_doi", doi)
@@ -304,7 +305,7 @@ class ApiClient:
             log.warning("  Europe PMC fetch failed for DOI %s: %s", doi, e)
         return None
 
-    def pmid_to_metadata_europepmc(self, pmid: str) -> Optional[dict]:
+    def pmid_to_metadata_europepmc(self, pmid: str) -> dict | None:
         """Fetch full metadata from Europe PMC by PMID."""
         cache_key = ResponseCache.make_key("europepmc", "by_pmid", pmid)
         cached = self._cached_get(cache_key)
@@ -332,7 +333,7 @@ class ApiClient:
 
     # ---- arXiv ----
 
-    def fetch_arxiv(self, arxiv_id: str) -> Optional[dict]:
+    def fetch_arxiv(self, arxiv_id: str) -> dict | None:
         """Fetch metadata from arXiv API by arXiv ID."""
         arxiv_id = self.clean_arxiv(arxiv_id)
         cache_key = ResponseCache.make_key("arxiv", "meta", arxiv_id)
@@ -388,7 +389,7 @@ class ApiClient:
 
     # ---- Open Library ----
 
-    def fetch_openlibrary(self, isbn: str) -> Optional[dict]:
+    def fetch_openlibrary(self, isbn: str) -> dict | None:
         """Fetch book metadata from Open Library by ISBN.
 
         Retries up to 3 times on connection errors.
@@ -452,7 +453,7 @@ class ApiClient:
                 log.warning("  Open Library fetch failed for ISBN %s: %s", isbn, e)
         return None
 
-    def check_wayback(self, url: str) -> Optional[tuple]:
+    def check_wayback(self, url: str) -> tuple | None:
         """Check Wayback Machine for an archived snapshot of *url*.
 
         Returns:
@@ -581,7 +582,7 @@ class ApiClient:
 
     # ---- Semantic Scholar ----
 
-    def doi_to_s2cid(self, doi: str) -> Optional[str]:
+    def doi_to_s2cid(self, doi: str) -> str | None:
         """Look up Semantic Scholar paper ID by DOI."""
         doi = self.clean_doi(doi)
         cache_key = ResponseCache.make_key("semantic", "s2cid", doi)

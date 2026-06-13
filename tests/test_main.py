@@ -3,8 +3,8 @@ from unittest.mock import patch
 
 import pytest
 
-from wikifix.__main__ import build_argparser, main, MODULE_REGISTRY
 from wikifix import __version__
+from wikifix.__main__ import MODULE_REGISTRY, build_argparser, main
 
 
 class TestBuildArgparser:
