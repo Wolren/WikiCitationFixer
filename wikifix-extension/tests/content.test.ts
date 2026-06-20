@@ -146,7 +146,7 @@ describe("processWikitext", () => {
   it("adds ref name when refNames=true", async () => {
     const result = await processWikitext(
       "<ref>{{cite journal |last=Smith |year=2024 |title=Test |doi=10.1000/ct4}}</ref>",
-      true
+      { ref_names: true, modules: "expand,cleanup,dates,spacing,sort" }
     );
     expect(result).toContain('name="Smith2024"');
   });
@@ -155,7 +155,7 @@ describe("processWikitext", () => {
     const text =
       '<ref>{{cite journal |last=Smith |year=2024 |title=A |doi=10.1000/ct5a}}</ref>' +
       ' <ref>{{cite journal |last=Smith |year=2024 |title=B |doi=10.1000/ct5b}}</ref>';
-    const result = await processWikitext(text, true);
+    const result = await processWikitext(text, { ref_names: true, modules: "expand,cleanup,dates,spacing,sort" });
     expect(result).toContain('name="Smith2024"');
     expect(result).toContain('name="Smith2024-2"');
   });
@@ -163,7 +163,7 @@ describe("processWikitext", () => {
   it("applies global ref name renames", async () => {
     const text =
       '<ref name="Smith">{{cite journal |last=Smith |year=2024 |title=Test |doi=10.1000/ct6}}</ref>';
-    const result = await processWikitext(text, true);
+    const result = await processWikitext(text, { ref_names: true, modules: "expand,cleanup,dates,spacing,sort" });
     expect(result).toContain('name="Smith2024"');
     expect(result).not.toContain('name="Smith"');
   });

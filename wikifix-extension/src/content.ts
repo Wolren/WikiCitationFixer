@@ -259,39 +259,18 @@ async function onClick(): Promise<void> {
 }
 
 function updateEditorContent(text: string): void {
-  const textarea = document.getElementById("wpTextbox1") as HTMLTextAreaElement | null;
-  if (textarea) {
-    textarea.value = text;
-    textarea.dispatchEvent(new Event("input", { bubbles: true }));
-  }
-
-  if (document.querySelector(".cm-editor")) {
-    const script = document.createElement("script");
-    script.textContent = `(function(){
-      var t=${JSON.stringify(text)};
-
-      function upd(v){if(v&&v.dispatch&&v.state){v.dispatch({changes:{from:0,to:v.state.doc.length,insert:t}});return true;}return false;}
-
-      if(typeof mw!=='undefined'&&mw.codemirror){
-        if(Array.isArray(mw.codemirror.editors)){for(var i=0;i<mw.codemirror.editors.length;i++){if(upd(mw.codemirror.editors[i].cm||mw.codemirror.editors[i]))return;}}
-        if(upd(mw.codemirror.editor))return;
-      }
-
-      var cm=document.querySelector('.cm-editor');
-      if(!cm)return;
-      if(upd(cm.__cmView)||upd(cm.cmView))return;
-      var keys=Object.keys(cm);
-      for(var i=0;i<keys.length;i++){if(upd(cm[keys[i]]))return;}
-
-      var content=cm.querySelector('.cm-content');
-      if(content){
-        keys=Object.keys(content);
-        for(var i=0;i<keys.length;i++){if(upd(content[keys[i]]))return;}
-      }
-    })();`;
-    document.body.appendChild(script);
-    script.remove();
-  }
+  const script = document.createElement("script");
+  script.textContent = `(function(){
+    var t=${JSON.stringify(text)};
+    try {
+      var $t = $('#wpTextbox1');
+      if ($t.textSelection) { $t.textSelection('setContents', t); return; }
+    } catch(e){}
+    var ta = document.getElementById('wpTextbox1');
+    if (ta) { ta.value = t; ta.dispatchEvent(new Event('input', {bubbles:true})); }
+  })();`;
+  document.body.appendChild(script);
+  script.remove();
 }
 
 async function fixInEditor(settings: StorageSettings): Promise<void> {
@@ -322,7 +301,7 @@ async function fixInEditor(settings: StorageSettings): Promise<void> {
   }
 
   showNotification("info", "Processing citations...");
-  const fixed = await processWikitext(wikitext, settings.ref_names);
+  const fixed = await processWikitext(wikitext, settings);
   const diff = generateDiff(wikitext, fixed);
   if (wikitext === fixed) {
     showNotification("info", "No citation changes needed.");
@@ -366,17 +345,24 @@ async function fixLocally(settings: StorageSettings): Promise<void> {
   const wikitext = await fetchWikitext(title);
   if (!wikitext) { showNotification("error", "Failed to fetch wikitext."); return; }
   showNotification("info", "Processing citations...");
-  const fixed = await processWikitext(wikitext, settings.ref_names);
+  const fixed = await processWikitext(wikitext, settings);
   const diff = generateDiff(wikitext, fixed);
   showDiffPanel(fixed, diff, title);
 }
 
-export async function processWikitext(text: string, refNames: boolean): Promise<string> {
+function moduleEnabled(modules: string, name: string): boolean {
+  return modules.split(",").map(m => m.trim()).includes(name);
+}
+
+export async function processWikitext(text: string, settings: StorageSettings): Promise<string> {
   let result = text;
   const citations = findCitations(text);
   const replacements: { start: number; end: number; replacement: string }[] = [];
   const usedRefNames = new Set<string>();
   const refNameMap: Record<string, string> = {};
+
+  const mods = settings.modules || "expand,cleanup,dates,spacing,archive,sort";
+  const refNames = settings.ref_names;
 
   for (const citation of citations) {
     const si = text.indexOf(citation.raw);
@@ -384,41 +370,56 @@ export async function processWikitext(text: string, refNames: boolean): Promise<
     const ei = si + citation.raw.length;
     let params = { ...citation.params };
 
-    params = normalizeSpacing(params);
+    let newTemplateType: string | null = null;
 
-    const exp = await expandCitation(citation, { templateType: citation.template });
-    if (exp.changes.length > 0) {
-      params = exp.params;
+    if (moduleEnabled(mods, "spacing")) {
+      params = normalizeSpacing(params);
     }
 
-    let newTemplateType: string | null = null;
-    const cl = cleanupCitation(params, { templateType: templateTypeFor(citation.template) });
-    if (cl.changes.length > 0 || (cl.renameParams && Object.keys(cl.renameParams).length > 0)) {
-      params = cl.params;
-      if (cl.renameParams) {
-        for (const [old, next] of Object.entries(cl.renameParams)) {
-          if (params[old] !== undefined) {
-            params[next] = params[old];
-            delete params[old];
+    if (moduleEnabled(mods, "expand")) {
+      const exp = await expandCitation(citation, {
+        templateType: citation.template,
+        force: settings.force,
+        mode: settings.force ? "force" : "incremental",
+      });
+      if (exp.changes.length > 0) {
+        params = exp.params;
+      }
+    }
+
+    if (moduleEnabled(mods, "cleanup")) {
+      const cl = cleanupCitation(params, { templateType: templateTypeFor(citation.template) });
+      if (cl.changes.length > 0 || (cl.renameParams && Object.keys(cl.renameParams).length > 0)) {
+        params = cl.params;
+        if (cl.renameParams) {
+          for (const [old, next] of Object.entries(cl.renameParams)) {
+            if (params[old] !== undefined) {
+              params[next] = params[old];
+              delete params[old];
+            }
           }
         }
+        if (cl.newTemplateType) newTemplateType = cl.newTemplateType;
       }
-      if (cl.newTemplateType) newTemplateType = cl.newTemplateType;
     }
 
-    if (params["date"]) {
+    if (moduleEnabled(mods, "dates") && params["date"]) {
       const norm = normalizeDate(params["date"]);
       if (norm !== params["date"]) {
         params["date"] = norm;
       }
     }
 
-    const arc = await addArchiveUrls(params, false);
-    if (arc.changes.length > 0) {
-      params = arc.params;
+    if (moduleEnabled(mods, "archive")) {
+      const arc = await addArchiveUrls(params, false);
+      if (arc.changes.length > 0) {
+        params = arc.params;
+      }
     }
 
-    params = sortParams(params);
+    if (moduleEnabled(mods, "sort")) {
+      params = sortParams(params);
+    }
 
     const template = newTemplateType || citation.template;
     const body = formatBody(params);
