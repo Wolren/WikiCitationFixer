@@ -119,7 +119,8 @@ describe("processWikitext", () => {
 
   it("returns reformatted but equivalent citation for unchanged content", async () => {
     const result = await processWikitext(
-      "{{cite journal | title = Test | doi = 10.1000/ct1 | date = 15 March 2024}}", false
+      "{{cite journal | title = Test | doi = 10.1000/ct1 | date = 15 March 2024}}",
+      { modules: "expand,cleanup,dates,spacing,sort" }
     );
     expect(result).toContain("title = Test");
     expect(result).toContain("doi = 10.1000/ct1");
@@ -128,12 +129,16 @@ describe("processWikitext", () => {
   });
 
   it("normalizes date in citation", async () => {
-    const result = await processWikitext("{{cite journal |date=2024-03-15 |title=Test}}", false);
+    const result = await processWikitext("{{cite journal |date=2024-03-15 |title=Test}}",
+      { modules: "expand,cleanup,dates,spacing,sort" }
+    );
     expect(result).toContain("15 March 2024");
   });
 
   it("normalizes spacing in citation", async () => {
-    const result = await processWikitext("{{cite journal|title=Test|doi=10.1000/ct2|date=2024}}", false);
+    const result = await processWikitext("{{cite journal|title=Test|doi=10.1000/ct2|date=2024}}",
+      { modules: "expand,cleanup,dates,spacing,sort" }
+    );
     expect(result).toContain("| title = Test");
     expect(result).toContain("| doi = 10.1000/ct2");
   });
@@ -160,19 +165,55 @@ describe("processWikitext", () => {
     expect(result).toContain('name="Smith2024-2"');
   });
 
-  it("applies global ref name renames", async () => {
+  it("leaves existing ref names as-is", async () => {
     const text =
       '<ref name="Smith">{{cite journal |last=Smith |year=2024 |title=Test |doi=10.1000/ct6}}</ref>';
     const result = await processWikitext(text, { ref_names: true, modules: "expand,cleanup,dates,spacing,sort" });
+    expect(result).toContain('name="Smith"');
+    expect(result).not.toContain('name="Smith2024"');
+    expect(result.match(/<ref/g)?.length).toBe(1); // no double ref
+  });
+
+  it("renames existing ref names when rename_ref_names is true", async () => {
+    const text =
+      '<ref name="Smith">{{cite journal |last=Smith |year=2024 |title=Test |doi=10.1000/ct6r}}</ref>';
+    const result = await processWikitext(text, { ref_names: true, rename_ref_names: true, modules: "expand,cleanup,dates,spacing,sort" });
     expect(result).toContain('name="Smith2024"');
     expect(result).not.toContain('name="Smith"');
+    expect(result.match(/<ref/g)?.length).toBe(1);
+  });
+
+  it("does not double-wrap <ref> when adding name to bare <ref>", async () => {
+    const text =
+      '<ref>{{cite journal |last=Jones |year=2023 |title=Article |doi=10.1000/ct7}}</ref>';
+    const result = await processWikitext(text, { ref_names: true, modules: "expand,cleanup,dates,spacing,sort" });
+    expect(result).toContain('name="Jones2023"');
+    expect(result.match(/<ref/g)?.length).toBe(1);
+    expect(result).not.toMatch(/<ref><ref/);
+  });
+
+  it("does not wrap citations in See also / Further reading sections", async () => {
+    const text =
+      "==See also==\n\n* {{cite journal |last=King |year=2021 |title=Review |doi=10.1000/ct99}}";
+    const result = await processWikitext(text, { ref_names: true, modules: "expand,cleanup,dates,spacing,sort" });
+    expect(result).not.toContain("<ref");
+    expect(result).toContain("{{cite journal");
+  });
+
+  it("wraps bare citation in ref name when no <ref> tag exists", async () => {
+    const text =
+      '{{cite journal |last=Lee |year=2022 |title=Paper |doi=10.1000/ct8}}';
+    const result = await processWikitext(text, { ref_names: true, modules: "expand,cleanup,dates,spacing,sort" });
+    expect(result).toContain('<ref name="Lee2022">');
+    expect(result).toMatch(/<\/ref>$/);
+    expect(result.match(/<ref/g)?.length).toBe(1);
   });
 
   it("processes multiple citations in sequence", async () => {
     const text =
       "{{cite journal |last=Smith|title=A|date=2024-03-15}}" +
       "{{cite web |title=B|date=2024-04-20|url=http://example.com}}";
-    const result = await processWikitext(text, false);
+    const result = await processWikitext(text, { modules: "expand,cleanup,dates,spacing,sort" });
     expect(result).toContain("15 March 2024");
     expect(result).toContain("20 April 2024");
     expect(result).toContain("| last = Smith");
@@ -196,7 +237,7 @@ describe("processWikitext", () => {
   it("handles sort params", async () => {
     const result = await processWikitext(
       "{{cite journal |doi=10.1000/ct8 |title=Test |date=2024}}",
-      false
+      { modules: "expand,cleanup,dates,spacing,sort" }
     );
     const titleIdx = result.indexOf("title");
     const doiIdx = result.indexOf("doi");
@@ -214,7 +255,8 @@ describe("processWikitext", () => {
 
   it("handles no changes gracefully (reformats but preserves content)", async () => {
     const result = await processWikitext(
-      "{{cite web |title=Test |date=2024 |url=http://example.com}}", false
+      "{{cite web |title=Test |date=2024 |url=http://example.com}}",
+      { modules: "expand,cleanup,dates,spacing,sort" }
     );
     expect(result).toContain("title = Test");
     expect(result).toContain("date = 2024");

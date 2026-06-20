@@ -68,6 +68,18 @@ describe("parseParams", () => {
     const result = parseParams("");
     expect(Object.keys(result)).toHaveLength(0);
   });
+
+  it("handles pipe inside [[...]] wiki links", () => {
+    const result = parseParams("| journal = [[Vogue (magazine)|Vogue]] | title = Test");
+    expect(result.journal).toBe("[[Vogue (magazine)|Vogue]]");
+    expect(result.title).toBe("Test");
+  });
+
+  it("handles pipe inside {{...}} templates", () => {
+    const result = parseParams("| title = {{lang|fr|Test}} | date = 2024");
+    expect(result.title).toBe("{{lang|fr|Test}}");
+    expect(result.date).toBe("2024");
+  });
 });
 
 describe("renderCitation", () => {
@@ -75,6 +87,7 @@ describe("renderCitation", () => {
     const result = renderCitation("cite journal", { title: "Test" });
     expect(result).toContain("cite journal");
     expect(result).toContain("title = Test");
+    expect(result).not.toMatch(/\s+}}$/);
   });
 
   it("renders without params", () => {

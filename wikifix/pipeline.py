@@ -86,6 +86,7 @@ class CitationPipeline:
         create_archive: bool = False,
         ref_names: bool = False,
         strip_issn: bool = False,
+        spacing_style: str = "standard",
         diff: bool = False,
     ):
         """Runs a sequence of modules over all cite templates in a file.
@@ -127,6 +128,7 @@ class CitationPipeline:
         self.create_archive = create_archive
         self.ref_names = ref_names
         self.strip_issn = strip_issn
+        self.spacing_style = spacing_style
         self.diff = diff
 
     # ------------------------------------------------------------------
@@ -304,6 +306,7 @@ class CitationPipeline:
                 "force_archive_all": self.force_archive_all,
                 "create_archive": self.create_archive,
                 "strip_issn": self.strip_issn,
+                "spacing_style": getattr(self, "spacing_style", "standard"),
             }
             overall_changes: dict[str, bool] = {}
             all_renames: dict[str, str] = {}

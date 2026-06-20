@@ -1,0 +1,88 @@
+[
+  {
+    "name": "basic journal citation",
+    "input": "{{cite journal | last1 = Baldwin | first1 = Clive | last2 = Ripley | first2 = Lauren | year = 2020 | title = Exploring Other-Than-Human Identity | journal = Qualitative Sociology Review | volume = 16 | issue = 3 | pages = 8\u201326 | doi = 10.18778/1733-8077.16.3.02 | issn = 1733-8077 | doi-access = free}}",
+    "modules": "cleanup,dates,spacing,sort",
+    "checks": ["Baldwin", "Clive", "Qualitative Sociology Review", "10.18778/1733-8077.16.3.02"]
+  },
+  {
+    "name": "date normalization ISO",
+    "input": "{{cite web |title=Test |date=2024-03-15 |url=http://example.com}}",
+    "modules": "dates,spacing",
+    "checks": ["15 March 2024"],
+    "no_checks": ["2024-03-15"]
+  },
+  {
+    "name": "empty title cleanup",
+    "input": "{{cite journal |title= |doi=10.1000/ct3 |date=2024}}",
+    "modules": "cleanup,spacing",
+    "checks": ["10.1000/ct3"],
+    "no_checks": ["title ="]
+  },
+  {
+    "name": "ISBN-10 to ISBN-13 hyphenated",
+    "input": "{{cite book |isbn=0306406152 |title=Test Book |date=2024}}",
+    "modules": "cleanup",
+    "checks": ["978-0-306-40615-7"],
+    "xfail_py": "Python returns digit-only ISBN (no hyphenation)"
+  },
+  {
+    "name": "archive-date normalization",
+    "input": "{{cite web |title=Test |date=2024 |url=http://example.com |archive-date=20250121}}",
+    "modules": "dates",
+    "checks": ["2025-01-21"],
+    "xfail_py": "Python does not normalize archive-date format"
+  },
+  {
+    "name": "vauthors to last/first",
+    "input": "{{cite journal |vauthors=Smith JA, Doe JB |title=Test |date=2024}}",
+    "modules": "authors,spacing",
+    "checks": ["last = Smith", "first = JA", "last2 = Doe", "first2 = JB"]
+  },
+  {
+    "name": "periodical conflict cleanup",
+    "input": "{{cite web |title=Test |date=2024 |url=http://example.com |journal=Some Journal}}",
+    "modules": "cleanup,spacing",
+    "no_checks": ["journal"]
+  },
+  {
+    "name": "deprecated param removal",
+    "input": "{{cite journal |title=Test |date=2024 |doi=10.1000/ct |month=January}}",
+    "modules": "cleanup,spacing",
+    "no_checks": ["month"]
+  },
+  {
+    "name": "year-date conflict",
+    "input": "{{cite journal |title=Test |date=15 March 2024 |year=2024 |doi=10.1000/ct}}",
+    "modules": "cleanup,spacing",
+    "no_checks": ["year=2024"]
+  },
+  {
+    "name": "ref name generation",
+    "input": "<ref>{{cite journal |last=Smith |year=2024 |title=Test |doi=10.1000/ct4}}</ref>",
+    "modules": "spacing,sort",
+    "checks": ["name=\"Smith2024\""],
+    "ref_names": true
+  },
+  {
+    "name": "existing ref name preserved",
+    "input": "<ref name=\"Smith\">{{cite journal |last=Smith |year=2024 |title=Test |doi=10.1000/ct6}}</ref>",
+    "modules": "spacing,sort",
+    "checks": ["name=\"Smith\""],
+    "ref_names": true,
+    "xfail_py": "Python --ref-names always renames, JS has separate generate/rename"
+  },
+  {
+    "name": "see also section no ref wrap",
+    "input": "==See also==\n\n* {{cite journal |last=King |year=2021 |title=Review |doi=10.1000/ct99}}",
+    "modules": "spacing",
+    "no_checks": ["<ref"],
+    "ref_names": true
+  },
+  {
+    "name": "Page/pages conflict",
+    "input": "{{cite journal |title=Test |date=2024 |doi=10.1000/ct |page=10 |pages=10-20}}",
+    "modules": "cleanup,spacing",
+    "no_checks": ["pages=10-20"]
+  }
+]

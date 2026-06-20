@@ -116,6 +116,12 @@ def build_argparser() -> argparse.ArgumentParser:
         help="Remove ISSN when DOI is present (redundant identifier)",
     )
     p.add_argument(
+        "--spacing-style",
+        choices=["standard", "compact"],
+        default="standard",
+        help="Spacing format: 'standard' (| param = value) or 'compact' (|param=value)",
+    )
+    p.add_argument(
         "--max-authors",
         type=int,
         default=6,
@@ -318,6 +324,7 @@ def main() -> None:
         create_archive=args.create_archive,
         ref_names=args.ref_names,
         strip_issn=args.strip_issn,
+        spacing_style=args.spacing_style,
         diff=args.diff,
     )
 

@@ -1,9 +1,11 @@
-import { findCitations, renderCitation, applyRenames, generateRefName } from "./lib/wikitext";
+import { findCitations, parseParams, renderCitation, applyRenames, generateRefName } from "./lib/wikitext";
 import { expandCitation } from "./lib/expand";
 import { cleanupCitation, addArchiveUrls } from "./lib/cleanup";
 import { normalizeDate } from "./lib/dates";
 import { normalizeSpacing, sortParams, formatCitationBody } from "./lib/spacing";
 import { generateDiff } from "./lib/diff";
+import { processAuthors, tryFetchAuthors } from "./lib/authors";
+import { setApiKeys } from "./lib/api";
 import type { StorageSettings } from "./lib/types";
 
 const BUTTON_ID = "wikifix-btn";
@@ -142,14 +144,12 @@ export function addButton(): void {
   btn.id = BUTTON_ID;
   btn.innerHTML = `${WAND_ICON} Fix citations`;
 
-  if (isEditPage()) {
-    if (document.getElementById("wikiEditor-ui-toolbar") || document.getElementById("editform")) {
-      addButtonToEditPage(btn);
-    } else {
-      setTimeout(() => addButtonToEditPage(btn), 1000);
-    }
+  if (!isEditPage()) return;
+
+  if (document.getElementById("wikiEditor-ui-toolbar") || document.getElementById("editform")) {
+    addButtonToEditPage(btn);
   } else {
-    addButtonToArticlePage(btn);
+    setTimeout(() => addButtonToEditPage(btn), 1000);
   }
   btn.addEventListener("click", onClick);
 }
@@ -220,15 +220,13 @@ export async function getSettings(): Promise<StorageSettings> {
   try {
     const raw = await browser.storage.local.get(STORAGE_KEY);
     return (raw[STORAGE_KEY] as StorageSettings) || {
-      serverUrl: "",
-      modules: "expand,cleanup,dates",
+      modules: "expand,cleanup,dates,ids,archive,dedup",
       force: false,
       ref_names: false,
     };
   } catch {
     return {
-      serverUrl: "",
-      modules: "expand,cleanup,dates",
+      modules: "expand,cleanup,dates,ids,archive,dedup",
       force: false,
       ref_names: false,
     };
@@ -244,8 +242,6 @@ async function onClick(): Promise<void> {
     const settings = await getSettings();
     if (isEditPage()) {
       await fixInEditor(settings);
-    } else if (settings.serverUrl) {
-      await fixViaServer(settings);
     } else {
       await fixLocally(settings);
     }
@@ -308,8 +304,11 @@ async function fixInEditor(settings: StorageSettings): Promise<void> {
     return;
   }
   updateEditorContent(fixed);
-  const changeCount = (diff.match(/^\+/gm) || []).length;
-  showNotification("success", `${changeCount} citation change${changeCount !== 1 ? "s" : ""} applied. Review and save.`);
+  const desc = describeChanges(wikitext, fixed, diff);
+  showNotification("success", `${desc.count} changes`, desc.html);
+  // Auto-click "Show changes" to let user review
+  const diffBtn = document.getElementById("wpDiff") as HTMLButtonElement | null;
+  if (diffBtn) setTimeout(() => diffBtn.click(), 300);
 }
 
 async function fixViaServer(settings: StorageSettings): Promise<void> {
@@ -355,25 +354,30 @@ function moduleEnabled(modules: string, name: string): boolean {
 }
 
 export async function processWikitext(text: string, settings: StorageSettings): Promise<string> {
+  setApiKeys({
+    crossrefEmail: settings.crossref_email || "",
+    ncbiKey: settings.ncbi_api_key || "",
+    semanticScholarKey: settings.semantic_scholar_api_key || "",
+  });
   let result = text;
   const citations = findCitations(text);
   const replacements: { start: number; end: number; replacement: string }[] = [];
   const usedRefNames = new Set<string>();
-  const refNameMap: Record<string, string> = {};
 
-  const mods = settings.modules || "expand,cleanup,dates,spacing,archive,sort";
-  const refNames = settings.ref_names;
+  const mods = settings.modules || "expand,cleanup,dates,ids,archive,dedup";
+  const refNames = settings.auto_update || settings.ref_names;
 
   for (const citation of citations) {
-    const si = text.indexOf(citation.raw);
+    const si = citation.start;
     if (si === -1) continue;
     const ei = si + citation.raw.length;
     let params = { ...citation.params };
-
+    let changed = false;
     let newTemplateType: string | null = null;
 
     if (moduleEnabled(mods, "spacing")) {
       params = normalizeSpacing(params);
+      changed = true;
     }
 
     if (moduleEnabled(mods, "expand")) {
@@ -384,12 +388,14 @@ export async function processWikitext(text: string, settings: StorageSettings): 
       });
       if (exp.changes.length > 0) {
         params = exp.params;
+        changed = true;
       }
     }
 
     if (moduleEnabled(mods, "cleanup")) {
       const cl = cleanupCitation(params, { templateType: templateTypeFor(citation.template) });
       if (cl.changes.length > 0 || (cl.renameParams && Object.keys(cl.renameParams).length > 0)) {
+        changed = true;
         params = cl.params;
         if (cl.renameParams) {
           for (const [old, next] of Object.entries(cl.renameParams)) {
@@ -403,29 +409,84 @@ export async function processWikitext(text: string, settings: StorageSettings): 
       }
     }
 
+    if (moduleEnabled(mods, "authors")) {
+      changed = true;
+      const doi = params["doi"];
+      const body = formatBody(params);
+      const authorsFetch = settings.refresh_authors && doi
+        ? { fetchAuthors: async (d: string) => tryFetchAuthors(d) }
+        : undefined;
+      const authorResult = await processAuthors(body, {
+        style: (settings.author_style as "normal" | "vancouver") || "normal",
+        refresh: !!settings.refresh_authors,
+        maxAuthors: settings.max_authors ?? 6,
+        doi: authorsFetch ? doi : undefined,
+        api: authorsFetch,
+      });
+      if (authorResult !== body) {
+        params = parseParams(authorResult.replace(/^\||\|$/g, ""));
+      }
+    }
+
     if (moduleEnabled(mods, "dates") && params["date"]) {
       const norm = normalizeDate(params["date"]);
       if (norm !== params["date"]) {
         params["date"] = norm;
+        changed = true;
       }
     }
 
+    if (settings.strip_issn && params["doi"] && params["issn"]) {
+      delete params["issn"];
+      changed = true;
+    }
+
     if (moduleEnabled(mods, "archive")) {
-      const arc = await addArchiveUrls(params, false);
+      const arc = await addArchiveUrls(params, !!settings.force_archive_all);
       if (arc.changes.length > 0) {
         params = arc.params;
+        changed = true;
+      }
+    }
+
+    if (moduleEnabled(mods, "dates") && params["archive-date"]) {
+      const ad = params["archive-date"];
+      const adNorm = ad.replace(/^(\d{4})(\d{2})(\d{2}).*$/, "$1-$2-$3");
+      if (adNorm !== ad) {
+        params["archive-date"] = adNorm;
+        changed = true;
       }
     }
 
     if (moduleEnabled(mods, "sort")) {
       params = sortParams(params);
+      changed = true;
     }
 
     const template = newTemplateType || citation.template;
-    const body = formatBody(params);
-    const newRaw = `{{${template}\n${body}\n}}`;
+    if (!changed && !refNames) continue;
 
-    if (newRaw === citation.raw && !refNames) continue;
+    let body: string;
+    if (moduleEnabled(mods, "spacing")) {
+      const style = (settings.spacing_style || "standard");
+      body = formatBody(params, style === "compact");
+    } else {
+      // Preserve original format: modify raw body only where values changed
+      const rawBody = citation.raw.slice(citation.template.length + 2, -2);
+      const first = rawBody.match(/\|\s*([^=]+?)\s*=\s*([^|]+)/);
+      const hasSpaces = first ? /\|\s/.test(first[0]) && /\s=\s/.test(first[0]) : true;
+      let preserved = rawBody;
+      for (const [k, v] of Object.entries(params)) {
+        const re = new RegExp(`(\\|\\s*${escapeRe(k)}\\s*=\\s*)[^|]+`, "i");
+        if (re.test(preserved)) {
+          preserved = preserved.replace(re, (_, prefix) => `${prefix}${v}`);
+        } else {
+          preserved += hasSpaces ? ` | ${k} = ${v}` : `|${k}=${v}`;
+        }
+      }
+      body = preserved.trim();
+    }
+    const newRaw = body ? `{{${template} ${body}}}` : `{{${template}}}`;
 
     if (refNames) {
       const refName = generateRefName(body);
@@ -437,21 +498,50 @@ export async function processWikitext(text: string, settings: StorageSettings): 
           finalName = `${finalName}-${suffix}`;
         }
         usedRefNames.add(finalName);
+
+        // Skip if ref name already exists as an invocation elsewhere
+        const invRe = new RegExp(`<ref\\s+name=["']${escapeRe(finalName)}["']\\s*/>`);
+        if (invRe.test(text) || text.includes(`<ref name="${finalName}">`)) {
+          // Name already defined elsewhere — don't redefine
+          replacements.push({ start: si, end: ei, replacement: newRaw });
+          continue;
+        }
+
         const prefix = text.slice(0, si);
         const refM = prefix.match(/<ref\s*([^>]*)>\s*$/);
         if (refM) {
+          const refStart = si - refM[0].length;
           const attr = refM[1];
           const nameM = attr.match(/name\s*=\s*"([^"]*)"/i);
           if (nameM) {
-            const existing = nameM[1];
-            if (existing.startsWith(":") || existing === refName.split(/\d/)[0]) {
-              refNameMap[existing] = finalName;
+            // Already has a name — leave as-is (optionally rename)
+            if (settings.rename_ref_names) {
+              const existing = nameM[1];
+              let refEnd = ei;
+              if (text.slice(refEnd, refEnd + 6) === "</ref>") { refEnd += 6; }
+              const renamed = `<ref name="${finalName}">${newRaw}</ref>`;
+              replacements.push({ start: refStart, end: refEnd, replacement: renamed });
+              continue;
             }
           } else {
+            let refEnd = ei;
+            if (text.slice(refEnd, refEnd + 6) === "</ref>") { refEnd += 6; }
             replacements.push({
-              start: si, end: ei,
+              start: refStart, end: refEnd,
               replacement: formatRefName({ template, params }, params, finalName),
             });
+            continue;
+          }
+        } else if (!prefix.trim().endsWith("</ref>")) {
+          // Don't wrap in <ref> if inside excluded sections
+          const sections = prefix.match(/^==\s*(.+?)\s*==$/gm);
+          const lastSection = sections ? sections[sections.length - 1] : "";
+          if (/^==\s*(?:See also|Further reading|External links|Bibliography)\s*==$/i.test(lastSection)) {
+            // In a non-reference section — use newRaw without ref wrapper
+          } else {
+            // No <ref> wrapper — wrap citation in a new ref
+            const wrapped = `<ref name="${finalName}">${newRaw}</ref>`;
+            replacements.push({ start: si, end: ei, replacement: wrapped });
             continue;
           }
         }
@@ -469,19 +559,6 @@ export async function processWikitext(text: string, settings: StorageSettings): 
     result = result.slice(0, r.start) + r.replacement + result.slice(r.end);
   }
 
-  if (Object.keys(refNameMap).length > 0) {
-    for (const [old, next] of Object.entries(refNameMap)) {
-      result = result.replace(
-        new RegExp(`<ref\\s+name="${escapeRe(old)}"`, "g"),
-        `<ref name="${next}"`
-      );
-      result = result.replace(
-        new RegExp(`<ref\\s+name='${escapeRe(old)}'`, "g"),
-        `<ref name="${next}"`
-      );
-    }
-  }
-
   return result;
 }
 
@@ -492,13 +569,13 @@ export function templateTypeFor(template: string): string {
 
 export function formatRefName(citation: { template: string; params: Record<string, string> }, params: Record<string, string>, name: string): string {
   const body = formatBody(params);
-  return `<ref name="${name}">{{${citation.template}\n${body}\n}}</ref>`;
+  return body ? `<ref name="${name}">{{${citation.template} ${body}}}</ref>` : `<ref name="${name}">{{${citation.template}}}</ref>`;
 }
 
-export function formatBody(params: Record<string, string>): string {
+export function formatBody(params: Record<string, string>, compact = false): string {
   return Object.entries(params)
-    .map(([k, v]) => `| ${k} = ${v}`)
-    .join("\n");
+    .map(([k, v]) => compact ? `|${k}=${v}` : `| ${k} = ${v}`)
+    .join(" ");
 }
 
 export function getPageTitle(): string {
@@ -530,7 +607,7 @@ function removePanel(): void {
   if (panel) panel.remove();
 }
 
-export function showNotification(type: "success" | "error" | "info", message: string): void {
+export function showNotification(type: "success" | "error" | "info", message: string, html?: string): void {
   removePanel();
   let note = document.getElementById(NOTE_ID) as HTMLDivElement;
   if (!note) {
@@ -539,10 +616,54 @@ export function showNotification(type: "success" | "error" | "info", message: st
     document.body.appendChild(note);
   }
   note.className = `wikifix-${type}`;
-  note.textContent = message;
+  if (html) {
+    note.innerHTML = html +
+      `<button style="margin-top:8px;padding:4px 10px;background:#3366cc;color:#fff;border:none;border-radius:2px;cursor:pointer;font-size:12px" onclick="this.parentElement.style.display='none'">Close</button>`;
+  } else {
+    note.textContent = message;
+  }
   note.style.display = "block";
-  setTimeout(() => { note.style.display = "none"; }, 6000);
+  if (!html) {
+    setTimeout(() => { note.style.display = "none"; }, 6000);
+  }
   note.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+export function describeChanges(
+  original: string,
+  fixed: string,
+  diff: string
+): { count: number; html: string } {
+  const lines = diff.split("\n");
+  const added: string[] = [];
+  const removed: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith("+") && !line.startsWith("+++")) added.push(line.slice(1));
+    else if (line.startsWith("-") && !line.startsWith("---")) removed.push(line.slice(1));
+  }
+
+  const breakdown: string[] = [];
+  const modules: [RegExp, string][] = [
+    [/\|\s*(?:title|journal|volume|issue|pages?|date|publisher|doi)\s*=/i, "Expand"],
+    [/\|\s*(?:access-date|page|pages?|isbn|issn|doi-broken-date|url-status)\s*=/i, "Cleanup"],
+    [/\|\s*date\s*=\s*\d+\s+\w+\s+\d{4}/i, "Dates"],
+    [/\|\s*(?:last|first|vauthors)\s*=/i, "Authors"],
+    [/\|\s*(?:issn|pmid|pmc|s2cid|qid)\s*=/i, "Enrich IDs"],
+    [/\|\s*(?:archive-url|archive-date)\s*=/i, "Archive"],
+    [/\|\s*ref\s*=/i, "Ref names"],
+  ];
+
+  for (const [pattern, label] of modules) {
+    const count = added.filter((l) => pattern.test(l)).length -
+      removed.filter((l) => pattern.test(l)).length;
+    if (count > 0) breakdown.push(`${label}: +${count}`);
+    else if (count < 0) breakdown.push(`${label}: ${count}`);
+  }
+
+  const total = added.length;
+  const html = `<div style="font-weight:600;font-size:14px;margin-bottom:6px">${total} change${total !== 1 ? "s" : ""}</div>
+    ${breakdown.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px">${breakdown.map((b) => `<span style="background:#2d2d2d;padding:3px 8px;border-radius:3px;font-size:11px;white-space:nowrap">${b}</span>`).join("")}</div>` : ""}`;
+  return { count: total, html };
 }
 
 export function showDiffPanel(fixed: string, diff: string, title: string): void {
@@ -553,14 +674,14 @@ export function showDiffPanel(fixed: string, diff: string, title: string): void 
     panel.id = PANEL_ID;
     document.body.appendChild(panel);
   }
-  const changeCount = (diff.match(/^\+/gm) || []).length;
+  const desc = describeChanges("", fixed, diff);
   const link = `${window.location.origin}/w/index.php?title=${encodeURIComponent(title)}&action=edit`;
   panel.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
       <h3>WikiCitationFixer</h3>
       <button class="btn btn-close" onclick="document.getElementById('${PANEL_ID}').style.display='none'">Close</button>
     </div>
-    <div class="summary">${changeCount} change${changeCount !== 1 ? "s" : ""} made</div>
+    <div style="margin-bottom:8px">${desc.html}</div>
     <pre>${escapeHtml(diff || "(no changes)")}</pre>
     <div class="actions">
       <button class="btn btn-primary" onclick="navigator.clipboard.writeText(${JSON.stringify(fixed)}).then(t=>{this.textContent='Copied!'})">${WAND_ICON} Copy wikitext</button>

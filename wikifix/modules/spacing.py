@@ -45,6 +45,18 @@ class SpacingModule(CitationModule):
     def process(self, text: str, context: dict[str, Any]) -> ProcessingResult:
         """Normalize whitespace around pipes and equals signs."""
         start = text
-        text = self._format_equals(text)
-        text = self._format_pipes(text)
+        style = context.get("spacing_style", "standard")
+        if style == "compact":
+
+            def compact_eq(m: re.Match[str]) -> str:
+                param = m.group(1).strip()
+                value = m.group(2).strip()
+                return f"|{param}={value}"
+
+            text = re.sub(
+                r"\|\s*([^=\|]+?)\s*=\s*([^\|]+?)(?=\s*\||$)", compact_eq, text
+            )
+        else:
+            text = self._format_equals(text)
+            text = self._format_pipes(text)
         return ProcessingResult(text=text, changes={"spacing": text != start})

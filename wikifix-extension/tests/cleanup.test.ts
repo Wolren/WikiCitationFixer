@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { cleanupCitation, checkEssentialParams, cleanupCitationBody, detectDuplicates, fixIsbn } from "../src/lib/cleanup";
+import { cleanupCitation, checkEssentialParams, cleanupCitationBody, detectDuplicates, fixIsbn, addArchiveUrls } from "../src/lib/cleanup";
 
 describe("cleanupCitation", () => {
   it("removes empty params", () => {
@@ -222,6 +222,23 @@ describe("fixIsbn", () => {
   });
 });
 
+describe("addArchiveUrls", () => {
+  it("skips archiving when doi is present", async () => {
+    const result = await addArchiveUrls({ url: "https://example.com", doi: "10.1000/test" }, false);
+    expect(result.changes).toHaveLength(0);
+  });
+
+  it("skips archiving when url is missing", async () => {
+    const result = await addArchiveUrls({ doi: "10.1000/test" }, false);
+    expect(result.changes).toHaveLength(0);
+  });
+
+  it("skips archiving when archive-url already exists", async () => {
+    const result = await addArchiveUrls({ url: "https://example.com", "archive-url": "https://archive.org/123" }, false);
+    expect(result.changes).toHaveLength(0);
+  });
+});
+
 describe("cleanupCitation - new rules", () => {
   it("flags placeholder title", () => {
     const { changes } = cleanupCitation({
@@ -424,7 +441,7 @@ describe("cleanupCitation - new rules", () => {
       title: "Test",
       date: "2024",
     });
-    expect(result.params.isbn).toBe("9780306406157");
+    expect(result.params.isbn).toBe("978-0-306-40615-7");
     expect(result.changes).toContain("isbn-normalized");
   });
 

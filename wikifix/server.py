@@ -54,6 +54,7 @@ def _build_pipeline(data: dict[str, Any]) -> CitationPipeline:
         create_archive=data.get("create_archive", False),
         ref_names=data.get("ref_names", False),
         strip_issn=data.get("strip_issn", False),
+        spacing_style=data.get("spacing_style", "standard"),
         api_config=ApiConfig.from_env(),
     )
 
