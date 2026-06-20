@@ -39,7 +39,7 @@ class ApiConfig:
     max_workers: int = 4
 
     @staticmethod
-    def from_env(path: str | None = None, **overrides) -> "ApiConfig":
+    def from_env(path: str | None = None, **overrides: Any) -> "ApiConfig":
         """Load API config from a .env file, falling back to env vars.
 
         Warns on stderr if *path* is provided but does not exist.

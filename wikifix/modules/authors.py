@@ -18,6 +18,7 @@ Diagnostic-only checks (flag issues without modifying):
 
 import re
 import unicodedata
+from typing import Any
 
 from wikifix.base import CitationModule
 from wikifix.config import ProcessingResult
@@ -247,7 +248,7 @@ class AuthorModule(CitationModule):
         return text if updated else text
 
     @staticmethod
-    def _try_fetch_authors(api, doi: str) -> list[tuple[str, str]]:
+    def _try_fetch_authors(api: Any, doi: str) -> list[tuple[str, str]]:
         """Fetch full author names from multiple sources, returning the best result.
 
         Tries CrossRef → OpenAlex → DataCite → PubMed in parallel, picks the
@@ -271,7 +272,7 @@ class AuthorModule(CitationModule):
                 best_score = score
         return best
 
-    def process(self, text: str, context: dict) -> ProcessingResult:
+    def process(self, text: str, context: dict[str, Any]) -> ProcessingResult:
         """Convert author styles and/or enrich abbreviated given names."""
         original = text
         changes = {"authors": False}

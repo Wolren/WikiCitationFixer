@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "WikiCitationFixer",
+  "version": "3.0.0",
+  "description": "Fix Wikipedia citations — expand, clean up, enrich identifiers — fully self-contained",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://*.wikipedia.org/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "WikiCitationFixer"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.wikipedia.org/wiki/*", "https://*.wikipedia.org/w/*"],
+      "js": ["browser-polyfill.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "icons": {
+    "16": "icon.svg",
+    "48": "icon.svg",
+    "128": "icon.svg"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "wikifix@wolren.dev",
+      "strict_min_version": "115.0"
+    }
+  }
+}

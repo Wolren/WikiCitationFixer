@@ -1,3 +1,5 @@
+import builtins
+
 import pytest
 
 from wikifix.config import ApiConfig, CitationStats, Mode, ProcessingResult
@@ -60,6 +62,21 @@ class TestApiConfig:
     def test_from_env_warns_missing_path(self, caplog):
         ApiConfig.from_env("/nonexistent/path/.env")
         assert "env file not found" in caplog.text
+
+    def test_from_env_dotenv_missing(self, tmp_path, monkeypatch):
+        env_file = tmp_path / ".env"
+        env_file.write_text("CROSSREF_EMAIL=dotenv_test@test.com")
+        monkeypatch.delenv("CROSSREF_EMAIL", raising=False)
+        real_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "dotenv":
+                raise ImportError("No module named dotenv")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", mock_import)
+        cfg = ApiConfig.from_env(str(env_file))
+        assert cfg.crossref_email == ""
 
     def test_from_env_with_overrides(self):
         cfg = ApiConfig.from_env(cache_dir="/custom/cache", max_workers=8)

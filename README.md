@@ -44,7 +44,7 @@ python -m wikifix --modules spacing
 | `--author-style` | normal | `normal` (vauthors to last/first) or `vancouver` (last/first to vauthors) |
 | `--refresh-authors` | off | Fetch full given names from CrossRef, OpenAlex, DataCite, PubMed (requires DOI) |
 | `--max-authors` | 6 | Maximum authors before truncating with et al (0 = unlimited) |
-| `--ids` | issn,pmid,pmc,s2cid | Which identifiers to fetch |
+| `--ids` | issn,pmid,pmc,s2cid,qid | Which identifiers to fetch |
 | `-f, --force` | off | Re-fetch all identifiers even if present |
 | `--force-archive` | off | Archive all citation types, not just cite web/news |
 | `--create-archive` | off | Submit unarchived URLs to Wayback Machine to create new snapshots |

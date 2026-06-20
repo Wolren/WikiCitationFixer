@@ -5,6 +5,8 @@ Uses the pre-computed ``is_duplicate`` flag from the pipeline context
 to report citations that share a DOI or PMID with an earlier citation.
 """
 
+from typing import Any
+
 from wikifix.base import CitationModule
 from wikifix.config import ProcessingResult
 from wikifix.logger import get_logger
@@ -18,7 +20,7 @@ class DedupModule(CitationModule):
     name = "dedup"
     description = "Detect duplicate citations by DOI/PMID"
 
-    def process(self, text: str, context: dict) -> ProcessingResult:
+    def process(self, text: str, context: dict[str, Any]) -> ProcessingResult:
         """Flag duplicate citations that share a DOI or PMID with an earlier entry."""
         is_dup = context.get("is_duplicate", False)
         if not is_dup:

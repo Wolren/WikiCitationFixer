@@ -7,6 +7,7 @@ authors → translators → date → editors → title → work → URL → volu
 """
 
 import re
+from typing import Any
 
 from wikifix.base import CitationModule
 from wikifix.config import ProcessingResult
@@ -172,7 +173,7 @@ _NUMBERED_BASES = (
 ) | {"author-mask", "editor-mask"}
 
 
-def _parse_param_name(name: str):
+def _parse_param_name(name: str) -> tuple[str, int]:
     """Return ``(base_name, number)`` for a parameter name."""
     name = name.strip().lower()
     for base in _NUMBERED_BASES:
@@ -183,7 +184,7 @@ def _parse_param_name(name: str):
     return (name, 0)
 
 
-def _sort_key(param_name: str):
+def _sort_key(param_name: str) -> tuple[int, int, int, int]:
     """Produce a sort tuple for a parameter name.
 
     Numbered parameters within the same group (e.g. last/first/author-link)
@@ -207,7 +208,7 @@ class SortModule(CitationModule):
     description = "Reorder parameters to Wikipedia standard order"
 
     @staticmethod
-    def _parse_params(body: str):
+    def _parse_params(body: str) -> list[tuple[int, int, str, str]]:
         """Extract (full_match, name, value) triples from citation body."""
         params = []
         idx = 0
@@ -246,7 +247,7 @@ class SortModule(CitationModule):
 
         return params
 
-    def process(self, text: str, context: dict) -> ProcessingResult:
+    def process(self, text: str, context: dict[str, Any]) -> ProcessingResult:
         """Reorder citation parameters to Wikipedia standard order."""
         start = text
         params = self._parse_params(text)

@@ -6,6 +6,7 @@ values inside citation templates.
 """
 
 import re
+from typing import Any
 
 from wikifix.base import CitationModule
 from wikifix.config import ProcessingResult
@@ -24,7 +25,7 @@ class SpacingModule(CitationModule):
     def _format_equals(text: str) -> str:
         """Ensure ``| param = value`` spacing around each parameter."""
 
-        def repl(m):
+        def repl(m: re.Match[str]) -> str:
             param = m.group(1).strip()
             value = m.group(2).strip()
             return f"|{param} = {value}"
@@ -41,7 +42,7 @@ class SpacingModule(CitationModule):
             return f"{opening}{body}{closing}"
         return re.sub(r"\s*\|\s*", " | ", text)
 
-    def process(self, text: str, context: dict) -> ProcessingResult:
+    def process(self, text: str, context: dict[str, Any]) -> ProcessingResult:
         """Normalize whitespace around pipes and equals signs."""
         start = text
         text = self._format_equals(text)

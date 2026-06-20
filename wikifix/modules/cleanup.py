@@ -22,6 +22,7 @@ Fixes:
 """
 
 import re
+from typing import Any
 
 from wikifix.base import CitationModule
 from wikifix.config import ProcessingResult
@@ -225,7 +226,7 @@ class CleanupModule(CitationModule):
 
         return None
 
-    def process(self, text: str, context: dict) -> ProcessingResult:
+    def process(self, text: str, context: dict[str, Any]) -> ProcessingResult:
         """Apply CS1/CS2 maintenance fixes to a citation body."""
         changes = {}
         new_template_type = None
@@ -435,6 +436,18 @@ class CleanupModule(CitationModule):
             param = m.group(1).strip().lower()
             text = self._remove_field(text, param)
             changes["none-value"] = True
+
+        # --- 19. Missing essential params warning ---
+        if not self._field_exists(text, "title"):
+            changes["missing-title"] = True
+        if not self._field_exists(text, "date") and not self._field_exists(
+            text, "year"
+        ):
+            changes["missing-date"] = True
+        if t.startswith("cite web") and not self._field_exists(text, "url"):
+            changes["missing-url"] = True
+        if t.startswith("cite book") and not self._field_exists(text, "publisher"):
+            changes["missing-publisher"] = True
 
         return ProcessingResult(
             text=text,

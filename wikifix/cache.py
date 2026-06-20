@@ -61,12 +61,12 @@ class ResponseCache:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def make_key(module: str, method: str, *args, **kwargs) -> str:
+    def make_key(module: str, method: str, *args: Any, **kwargs: Any) -> str:
         """Deterministic cache key from method name + serialized arguments."""
         raw = f"{module}.{method}:{args!r},{kwargs!r}"
         return hashlib.sha256(raw.encode()).hexdigest()
 
     @staticmethod
-    def make_key_dict(module: str, method: str, **kwargs) -> str:
+    def make_key_dict(module: str, method: str, **kwargs: Any) -> str:
         """Convenience wrapper when all arguments are keyword-only."""
         return ResponseCache.make_key(module, method, (), kwargs)

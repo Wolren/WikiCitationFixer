@@ -11,6 +11,7 @@ consistency.
 """
 
 import re
+from typing import Any
 
 from wikifix.base import CitationModule
 from wikifix.config import Mode, ProcessingResult
@@ -42,7 +43,7 @@ class ArchiveModule(CitationModule):
     name = "archive"
     description = "Add archive-url/archive-date from Wayback Machine"
 
-    def process(self, text: str, context: dict) -> ProcessingResult:
+    def process(self, text: str, context: dict[str, Any]) -> ProcessingResult:
         """Add or validate archive-url/archive-date from Wayback Machine."""
         template_type = context.get("template_type", "")
         api = context.get("api")
@@ -142,10 +143,8 @@ class ArchiveModule(CitationModule):
         # Only definitive 404/410 treated as dead; 403/429/timeout/etc. are unreliable
         url_status = "live"
         try:
-            import requests
-
-            resp = requests.head(url, timeout=10, allow_redirects=True)
-            if resp.status_code in (404, 410):
+            status = api.head_url(url)
+            if status in (404, 410):
                 url_status = "dead"
         except Exception:
             log.debug("    + URL probe failed for %s (assuming live)", url)

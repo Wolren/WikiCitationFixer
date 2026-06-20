@@ -66,6 +66,14 @@ class TestResponseCache:
         key = ResponseCache.make_key("a", "b" * 100, "c" * 200)
         assert len(key) == 64
 
+    def test_get_exception_returns_none(self, tmp_path):
+        from unittest.mock import patch
+
+        cache = ResponseCache(tmp_path / "exc_cache")
+        with patch.object(cache._cache, "get", side_effect=Exception("disk error")):
+            assert cache.get("any_key") is None
+        cache.clear()
+
     def test_default_ttl(self, tmp_path):
         import time
 

@@ -86,6 +86,7 @@ class CitationPipeline:
         create_archive: bool = False,
         ref_names: bool = False,
         strip_issn: bool = False,
+        diff: bool = False,
     ):
         """Runs a sequence of modules over all cite templates in a file.
 
@@ -98,20 +99,22 @@ class CitationPipeline:
                 ApiConfig dataclass holding rate-limit delays.
             author_style:
                 "normal" or "vancouver".
-            refresh_authors:
-                Fetch full given names from APIs.
-            max_authors:
-                Cap author output (0=unlimited).
-            ids_to_fetch:
-                Identifiers to enrich (issn, pmid, pmc, s2cid).
-            force_archive_all:
-                Archive all template types, not just cite web/news.
-            create_archive:
-                Submit unarchived URLs to Wayback for snapshot creation.
-            ref_names:
-                Auto-generate ref names from first author surname + year.
-            strip_issn:
-                Remove ISSN when DOI is present.
+        refresh_authors:
+            Fetch full given names from APIs.
+        max_authors:
+            Cap author output (0=unlimited).
+        ids_to_fetch:
+            Identifiers to enrich (issn, pmid, pmc, s2cid, qid).
+        force_archive_all:
+            Archive all template types, not just cite web/news.
+        create_archive:
+            Submit unarchived URLs to Wayback for snapshot creation.
+        ref_names:
+            Auto-generate ref names from first author surname + year.
+        strip_issn:
+            Remove ISSN when DOI is present.
+        diff:
+            Print unified diff of input vs output after processing.
         """
         self.modules = modules
         self.mode = mode
@@ -119,17 +122,18 @@ class CitationPipeline:
         self.author_style = author_style
         self.refresh_authors = refresh_authors
         self.max_authors = max_authors
-        self.ids_to_fetch = ids_to_fetch or ["issn", "pmid", "pmc", "s2cid"]
+        self.ids_to_fetch = ids_to_fetch or ["issn", "pmid", "pmc", "s2cid", "qid"]
         self.force_archive_all = force_archive_all
         self.create_archive = create_archive
         self.ref_names = ref_names
         self.strip_issn = strip_issn
+        self.diff = diff
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def process_file(self, input_path: Path, output_path: Path):
+    def process_file(self, input_path: Path, output_path: Path) -> None:
         """Read wikitext, process all citations, write result."""
         self._print_header()
 
@@ -270,7 +274,9 @@ class CitationPipeline:
         output_path.write_text(text, encoding="utf-8")
         self._print_summary(stats)
 
-    def _process_one(self, match: re.Match, first_seen: dict) -> _ProcessResult | None:
+    def _process_one(
+        self, match: re.Match[str], first_seen: dict[str, int]
+    ) -> _ProcessResult | None:
         """Run all modules on a single citation match (thread-safe)."""
         try:
             body = match.group(1)
@@ -391,7 +397,7 @@ class CitationPipeline:
         body: str,
         template_type: str,
         used_names: set[str],
-        renames: dict,
+        renames: dict[str, str],
         existing: str | None = None,
     ) -> str:
         """Generate a ref name from first author surname + year if missing.
@@ -539,7 +545,7 @@ class CitationPipeline:
     # I/O helpers
     # ------------------------------------------------------------------
 
-    def _print_header(self):
+    def _print_header(self) -> None:
         """Print a banner with pipeline configuration before processing."""
         mode_label = self.mode.name.replace("_", " ")
         log.info("=" * 80)
@@ -562,7 +568,7 @@ class CitationPipeline:
         log.info("Strip ISSN:       %s", self.strip_issn)
         log.info("")
 
-    def _print_summary(self, stats: CitationStats):
+    def _print_summary(self, stats: CitationStats) -> None:
         """Print per-module change counts after processing all citations."""
         log.info("")
         log.info("=" * 80)

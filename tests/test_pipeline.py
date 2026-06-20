@@ -1,4 +1,7 @@
+from unittest.mock import patch
+
 from wikifix.config import Mode
+from wikifix.modules.cleanup import CleanupModule
 from wikifix.modules.dates import DateModule
 from wikifix.modules.spacing import SpacingModule
 from wikifix.pipeline import CitationPipeline
@@ -105,6 +108,21 @@ class TestPipelineApplyRenames:
         body = " | title = Test"
         result = CitationPipeline._apply_renames(body, {})
         assert result == body
+
+    def test_rename_old_equals_new_skipped(self):
+        body = " | title = Test"
+        result = CitationPipeline._apply_renames(body, {"title": "title"})
+        assert "title" in result
+
+    def test_rename_no_match_skipped(self):
+        body = " | title = Test"
+        result = CitationPipeline._apply_renames(body, {"nonexistent": "newname"})
+        assert result == body
+
+    def test_rename_with_both_params_swap(self):
+        body = " | a = 1 | b = 2"
+        result = CitationPipeline._apply_renames(body, {"a": "b"})
+        assert "b = 1" in result
 
 
 class TestPipelineApplyDrops:
@@ -239,6 +257,150 @@ class TestPipelineRefNames:
         )
         assert result == text
 
+    def test_name_without_year(self):
+        pipeline = self._make_pipeline()
+        text = "<ref>{{cite journal |last=Smith |title=Test}}</ref>"
+        result = pipeline._add_ref_name(
+            text,
+            text.index("{{cite"),
+            " |last=Smith |title=Test",
+            "cite journal",
+            set(),
+            {},
+        )
+        assert 'name="Smith"' in result
+
+    def test_web_falls_back_to_work(self):
+        pipeline = self._make_pipeline()
+        text = "<ref>{{cite web |work=Example Site |title=Test}}</ref>"
+        result = pipeline._add_ref_name(
+            text,
+            text.index("{{cite"),
+            " |work=Example Site |title=Test",
+            "cite web",
+            set(),
+            {},
+        )
+        assert 'name="Example"' in result
+
+    def test_web_falls_back_to_website(self):
+        pipeline = self._make_pipeline()
+        text = "<ref>{{cite web |website=My Site |title=Test}}</ref>"
+        result = pipeline._add_ref_name(
+            text,
+            text.index("{{cite"),
+            " |website=My Site |title=Test",
+            "cite web",
+            set(),
+            {},
+        )
+        assert 'name="My"' in result
+
+    def test_web_falls_back_to_publisher(self):
+        pipeline = self._make_pipeline()
+        text = "<ref>{{cite web |publisher=Acme Corp |title=Test}}</ref>"
+        result = pipeline._add_ref_name(
+            text,
+            text.index("{{cite"),
+            " |publisher=Acme Corp |title=Test",
+            "cite web",
+            set(),
+            {},
+        )
+        assert 'name="Acme"' in result
+
+    def test_web_falls_back_to_title(self):
+        pipeline = self._make_pipeline()
+        text = "<ref>{{cite web |title=The Article}}</ref>"
+        result = pipeline._add_ref_name(
+            text,
+            text.index("{{cite"),
+            " |title=The Article",
+            "cite web",
+            set(),
+            {},
+        )
+        assert 'name="Article"' in result
+
+    def test_web_no_url_no_work_no_title_returns_unchanged(self):
+        pipeline = self._make_pipeline()
+        text = "<ref>{{cite web |other=foo}}</ref>"
+        result = pipeline._add_ref_name(
+            text,
+            text.index("{{cite"),
+            " |other=foo",
+            "cite web",
+            set(),
+            {},
+        )
+        assert result == text
+
+    def test_non_web_falls_back_to_title(self):
+        pipeline = self._make_pipeline()
+        text = "<ref>{{cite journal |title=My Article}}</ref>"
+        result = pipeline._add_ref_name(
+            text,
+            text.index("{{cite"),
+            " |title=My Article",
+            "cite journal",
+            set(),
+            {},
+        )
+        assert 'name="My"' in result
+
+    def test_non_web_no_title_returns_unchanged(self):
+        pipeline = self._make_pipeline()
+        text = "<ref>{{cite journal |other=foo}}</ref>"
+        result = pipeline._add_ref_name(
+            text,
+            text.index("{{cite"),
+            " |other=foo",
+            "cite journal",
+            set(),
+            {},
+        )
+        assert result == text
+
+    def test_vauthors_fallback(self):
+        pipeline = self._make_pipeline()
+        text = "<ref>{{cite journal |vauthors=Jones A}}</ref>"
+        result = pipeline._add_ref_name(
+            text,
+            text.index("{{cite"),
+            " |vauthors=Jones A",
+            "cite journal",
+            set(),
+            {},
+        )
+        assert 'name="Jones"' in result
+
+    def test_multiple_duplicate_suffix(self):
+        pipeline = self._make_pipeline()
+        text = "<ref>{{cite journal |last=Smith |year=2024 |title=Test}}</ref>"
+        used = {"Smith2024", "Smith2024-2"}
+        result = pipeline._add_ref_name(
+            text,
+            text.index("{{cite"),
+            " |last=Smith |year=2024 |title=Test",
+            "cite journal",
+            used,
+            {},
+        )
+        assert 'name="Smith2024-3"' in result
+
+    def test_renames_global_single_quote(self):
+        pipeline = self._make_pipeline()
+        text = "<ref name='Smith'>{{cite journal |last=Smith |year=2024 |title=Test}}</ref>"
+        result = pipeline._add_ref_name(
+            text,
+            text.index("{{cite"),
+            " |last=Smith |year=2024 |title=Test",
+            "cite journal",
+            set(),
+            {},
+        )
+        assert 'name="Smith2024"' in result
+
 
 class TestPipelineProcessFile:
     def test_empty_input_creates_empty_output(self, tmp_path):
@@ -369,3 +531,123 @@ class TestPipelineSequence:
         result = out.read_text(encoding="utf-8")
         assert "March" in result
         assert "April" in result
+
+    def test_cleanup_module_converts_citation_to_book(self, tmp_path):
+        inp = tmp_path / "in.txt"
+        out = tmp_path / "out.txt"
+        inp.write_text(
+            "{{citation |isbn=9780306406157 |title=My Book}}",
+            encoding="utf-8",
+        )
+        pipeline = CitationPipeline(modules=[CleanupModule()])
+        pipeline.process_file(inp, out)
+        result = out.read_text(encoding="utf-8")
+        assert "cite book" in result
+
+    def test_cleanup_module_converts_citation_to_journal(self, tmp_path):
+        inp = tmp_path / "in.txt"
+        out = tmp_path / "out.txt"
+        inp.write_text(
+            "{{citation |journal=Some Journal |title=Article}}",
+            encoding="utf-8",
+        )
+        pipeline = CitationPipeline(modules=[CleanupModule()])
+        pipeline.process_file(inp, out)
+        result = out.read_text(encoding="utf-8")
+        assert "cite journal" in result
+
+    def test_strip_issn_removes_issn_when_doi_present(self, tmp_path):
+        inp = tmp_path / "in.txt"
+        out = tmp_path / "out.txt"
+        inp.write_text(
+            "{{cite journal |doi=10.1000/test |issn=1234-5678 |title=Test}}",
+            encoding="utf-8",
+        )
+        pipeline = CitationPipeline(modules=[], strip_issn=True)
+        pipeline.process_file(inp, out)
+        result = out.read_text(encoding="utf-8")
+        assert "issn" not in result
+        assert "doi" in result
+
+    def test_global_ref_renames_single_quote(self, tmp_path):
+        inp = tmp_path / "in.txt"
+        out = tmp_path / "out.txt"
+        inp.write_text(
+            "<ref name='old_name'>{{cite journal |last=Smith |year=2024 |title=Test}}</ref>",
+            encoding="utf-8",
+        )
+        pipeline = CitationPipeline(modules=[], ref_names=True)
+        pipeline.process_file(inp, out)
+        result = out.read_text(encoding="utf-8")
+        assert 'name="Smith2024"' in result
+        assert "old_name" not in result
+
+    def test_global_ref_renames_bare_surname(self, tmp_path):
+        inp = tmp_path / "in.txt"
+        out = tmp_path / "out.txt"
+        inp.write_text(
+            '<ref name="Smith">{{cite journal |last=Smith |year=2024 |title=Test}}</ref>',
+            encoding="utf-8",
+        )
+        pipeline = CitationPipeline(modules=[], ref_names=True)
+        pipeline.process_file(inp, out)
+        result = out.read_text(encoding="utf-8")
+        assert 'name="Smith2024"' in result
+
+    def test_cleanup_module_triggers_renames(self, tmp_path):
+        inp = tmp_path / "in.txt"
+        out = tmp_path / "out.txt"
+        inp.write_text(
+            "{{citation |isbn=9780306406157 |work=Pub |title=My Book}}",
+            encoding="utf-8",
+        )
+        pipeline = CitationPipeline(modules=[CleanupModule()])
+        pipeline.process_file(inp, out)
+        result = out.read_text(encoding="utf-8")
+        assert "cite book" in result
+
+    def test_ref_name_no_author_no_year(self, tmp_path):
+        pipeline = CitationPipeline(modules=[], ref_names=True)
+        text = "{{citation |title=Test}}"
+        result = pipeline._add_ref_name(text, 0, " |title=Test", "citation", set(), {})
+        assert result == text
+
+    def test_canonical_type_fallthrough(self):
+        pipeline = CitationPipeline(modules=[])
+        assert pipeline._canonical_type("citation") == "citation"
+
+    def test_pmid_duplicate_detection(self, tmp_path):
+        inp = tmp_path / "in.txt"
+        out = tmp_path / "out.txt"
+        inp.write_text(
+            "{{cite journal |pmid=12345678 |title=First}}{{cite journal |pmid=12345678 |title=Second}}",
+            encoding="utf-8",
+        )
+        pipeline = CitationPipeline(modules=[])
+        pipeline.process_file(inp, out)
+        result = out.read_text(encoding="utf-8")
+        assert "pmid=12345678" in result
+
+    def test_ref_name_non_web_no_title(self):
+        pipeline = CitationPipeline(modules=[], ref_names=True)
+        text = "<ref>{{cite journal |title=}}</ref>"
+        result = pipeline._add_ref_name(
+            text, text.index("{{cite"), " |title=", "cite journal", set(), {}
+        )
+        assert result == text
+
+    def test_ref_name_non_web_all_stopwords_in_title(self):
+        pipeline = CitationPipeline(modules=[], ref_names=True)
+        text = "<ref>{{cite journal |title=The A An}}</ref>"
+        result = pipeline._add_ref_name(
+            text, text.index("{{cite"), " |title=The A An", "cite journal", set(), {}
+        )
+        assert result == text
+
+    def test_ref_name_no_ref_tag(self):
+        pipeline = CitationPipeline(modules=[], ref_names=True)
+        text = "no ref tag here"
+        result = pipeline._add_ref_name(
+            text, 0, " |last=Smith |year=2024", "cite journal", set(), {}
+        )
+        assert result == text

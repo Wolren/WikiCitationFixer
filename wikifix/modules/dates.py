@@ -6,6 +6,7 @@ available date information (day, month, year).
 """
 
 import re
+from typing import Any
 
 from wikifix.base import CitationModule
 from wikifix.config import ProcessingResult
@@ -128,7 +129,7 @@ class DateModule(CitationModule):
 
         return original
 
-    def process(self, text: str, context: dict) -> ProcessingResult:
+    def process(self, text: str, context: dict[str, Any]) -> ProcessingResult:
         """Normalize the |date= value to Wikipedia format."""
         changes = {"date": False}
         m = re.search(r"\|\s*date\s*=\s*([^\|}]+)", text)

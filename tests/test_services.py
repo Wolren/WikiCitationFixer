@@ -32,9 +32,9 @@ class TestApiClientRateLimit:
 
         cfg = ApiConfig(ncbi_delay=0.05)
         client = ApiClient(cfg)
-        client._last_call = time.time()
+        client._last_calls["test"] = time.time()
         t0 = time.time()
-        client._rate_limit(0.05)
+        client._rate_limit("test", 0.05)
         t1 = time.time()
         assert t1 - t0 >= 0.04
 
@@ -43,9 +43,9 @@ class TestApiClientRateLimit:
 
         cfg = ApiConfig(ncbi_delay=0.1)
         client = ApiClient(cfg)
-        client._last_call = 0
+        client._last_calls["test"] = 0.0
         t0 = time.time()
-        client._rate_limit(0.1)
+        client._rate_limit("test", 0.1)
         t1 = time.time()
         assert t1 - t0 < 0.2
 

@@ -14,6 +14,7 @@ Sources tried in order:
 
 import html
 import re
+from typing import Any
 
 from wikifix.base import CitationModule
 from wikifix.config import Mode, ProcessingResult
@@ -149,7 +150,7 @@ class ExpandModule(CitationModule):
         return "journal"  # fallback
 
     def _expand_from_doi(
-        self, text: str, doi: str, api, template_type: str, force: bool = False
+        self, text: str, doi: str, api: Any, template_type: str, force: bool = False
     ) -> str:
         """Try CrossRef then Europe PMC to fill fields via DOI."""
         msg = api.fetch_crossref(doi)
@@ -262,7 +263,7 @@ class ExpandModule(CitationModule):
         return text
 
     def _expand_from_pmid(
-        self, text: str, pmid: str, api, template_type: str, force: bool = False
+        self, text: str, pmid: str, api: Any, template_type: str, force: bool = False
     ) -> str:
         """Fill fields from Europe PMC by PMID."""
         epmc = api.pmid_to_metadata_europepmc(pmid)
@@ -297,7 +298,7 @@ class ExpandModule(CitationModule):
         return text
 
     def _expand_from_arxiv(
-        self, text: str, arxiv_id: str, api, force: bool = False
+        self, text: str, arxiv_id: str, api: Any, force: bool = False
     ) -> str:
         """Fill fields from arXiv API."""
         data = api.fetch_arxiv(arxiv_id)
@@ -314,7 +315,9 @@ class ExpandModule(CitationModule):
                 text = _add_field(text, "doi", data["doi"], force=force)
         return text
 
-    def _expand_from_isbn(self, text: str, isbn: str, api, force: bool = False) -> str:
+    def _expand_from_isbn(
+        self, text: str, isbn: str, api: Any, force: bool = False
+    ) -> str:
         """Fill fields from Open Library by ISBN."""
         data = api.fetch_openlibrary(isbn)
         if not data:
@@ -332,7 +335,29 @@ class ExpandModule(CitationModule):
                 )
         return text
 
-    def process(self, text: str, context: dict) -> ProcessingResult:
+    def _extract_doi_from_url(self, text: str) -> str | None:
+        """Extract a DOI from |url=https://doi.org/... if no |doi= already exists."""
+        if _has_field(text, "doi"):
+            return None
+        url_m = re.search(r"\|\s*url\s*=\s*([^\|}]+)", text)
+        if not url_m:
+            return None
+        url = url_m.group(1).strip()
+        m = re.match(r"https?://(?:dx\.)?doi\.org/(.+)$", url, re.IGNORECASE)
+        if m:
+            return m.group(1)
+        return None
+
+    def _expand_from_title(
+        self, text: str, title: str, api: Any, template_type: str
+    ) -> str:
+        """Search for a DOI by title, then expand from it."""
+        doi = api.doi_from_title(title)
+        if doi:
+            text = self._expand_from_doi(text, doi, api, template_type)
+        return text
+
+    def process(self, text: str, context: dict[str, Any]) -> ProcessingResult:
         """Fill in missing citation fields from DOI/PMID/arXiv/ISBN metadata."""
         start = text
         api = context.get("api")
@@ -347,6 +372,10 @@ class ExpandModule(CitationModule):
         arxiv_id = arxiv_m.group(1).strip() if arxiv_m else None
         isbn_m = re.search(r"\|\s*isbn\s*=\s*([^\|}]+)", text)
         isbn = isbn_m.group(1).strip() if isbn_m else None
+
+        # Extract DOI from |url= if no explicit |doi= field
+        if not doi:
+            doi = self._extract_doi_from_url(text)
 
         # Force-refresh: when a DOI is present, strip all expandable fields
         # and re-fetch from CrossRef/Europe PMC. Without a DOI there is no
@@ -386,7 +415,19 @@ class ExpandModule(CitationModule):
         if isbn:
             text = self._expand_from_isbn(text, isbn, api)
 
+        # Title→DOI expansion: if no DOI was found and no expansion happened, try title
+        if not doi and not pmid and not arxiv_id and not isbn:
+            title_val = context.get("title") or self._get_field(text, "title")
+            if title_val:
+                text = self._expand_from_title(text, title_val, api, template_type)
+
         changed = text != start
         if changed:
             log.info("    + Expanded with metadata")
         return ProcessingResult(text=text, changes={"expand": changed})
+
+    @staticmethod
+    def _get_field(text: str, field: str) -> str | None:
+        """Extract the value of a parameter from the citation body."""
+        m = re.search(rf"\|\s*{re.escape(field)}\s*=\s*([^|]+)", text)
+        return m.group(1).strip() if m else None

@@ -6,7 +6,7 @@ Usage:
     python -m wikifix --enrich                # ID enrichment + spacing only
     python -m wikifix --modules authors,dates,ids,spacing
     python -m wikifix --author-style vancouver
-    python -m wikifix --ids issn,pmid,pmc,s2cid
+    python -m wikifix --ids issn,pmid,pmc,s2cid,qid
     python -m wikifix --force
     python -m wikifix --list-modules
     python -m wikifix --help
@@ -102,8 +102,8 @@ def build_argparser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--ids",
-        default="issn,pmid,pmc,s2cid",
-        help="Comma-separated IDs to fetch (default: issn,pmid,pmc,s2cid)",
+        default="issn,pmid,pmc,s2cid,qid",
+        help="Comma-separated IDs to fetch (default: issn,pmid,pmc,s2cid,qid)",
     )
     p.add_argument(
         "--refresh-authors",
@@ -203,6 +203,11 @@ def build_argparser() -> argparse.ArgumentParser:
         help="Wipe the API response disk cache and exit",
     )
     p.add_argument(
+        "--diff",
+        action="store_true",
+        help="Print a unified diff of all changes made to the input",
+    )
+    p.add_argument(
         "--version",
         action="store_true",
         help="Show version and exit",
@@ -218,7 +223,7 @@ def build_argparser() -> argparse.ArgumentParser:
     return p
 
 
-def main():
+def main() -> None:
     """Entry point: parse CLI args and run the citation pipeline."""
     parser = build_argparser()
     args = parser.parse_args()
@@ -266,8 +271,13 @@ def main():
         module_source = args.modules
     module_names = [m.strip() for m in module_source.split(",") if m.strip()]
     # Deduplicate while preserving order
-    seen = set()
-    module_names = [n for n in module_names if n not in seen and not seen.add(n)]
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for n in module_names:
+        if n not in seen:
+            seen.add(n)
+            deduped.append(n)
+    module_names = deduped
 
     # Apply --no-MODULE exclusions
     for name in MODULE_REGISTRY:
@@ -308,6 +318,7 @@ def main():
         create_archive=args.create_archive,
         ref_names=args.ref_names,
         strip_issn=args.strip_issn,
+        diff=args.diff,
     )
 
     infile = Path(args.input)
@@ -337,6 +348,8 @@ def main():
         pipeline.process_file(infile, outfile)
         log.info("")
         log.info("+ Output saved to: %s", outfile)
+        if args.diff:
+            _show_diff(infile, outfile)
     except FileNotFoundError:
         log.error("ERROR: Could not read %s during processing", infile)
         sys.exit(1)
@@ -346,6 +359,31 @@ def main():
 
         traceback.print_exc()
         sys.exit(1)
+
+
+def _show_diff(original: Path, modified: Path) -> None:
+    """Print a unified diff between original and modified files."""
+    import difflib
+
+    try:
+        orig_lines = original.read_text(encoding="utf-8").splitlines(keepends=True)
+        mod_lines = modified.read_text(encoding="utf-8").splitlines(keepends=True)
+    except Exception as e:
+        log.warning("  Cannot compute diff: %s", e)
+        return
+
+    diff = difflib.unified_diff(
+        orig_lines,
+        mod_lines,
+        fromfile=str(original),
+        tofile=str(modified),
+        lineterm="",
+    )
+    diff_text = "".join(diff)
+    if diff_text.strip():
+        print(diff_text)
+    else:
+        log.info("  No differences found.")
 
 
 if __name__ == "__main__":

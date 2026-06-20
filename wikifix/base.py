@@ -2,6 +2,8 @@
 Base class for all citation fix modules.
 """
 
+from typing import Any
+
 from wikifix.config import ProcessingResult
 
 
@@ -15,7 +17,7 @@ class CitationModule:
     name: str = ""
     description: str = ""
 
-    def process(self, text: str, context: dict) -> ProcessingResult:
+    def process(self, text: str, context: dict[str, Any]) -> ProcessingResult:
         """Apply the module's transformations.
 
         Args:

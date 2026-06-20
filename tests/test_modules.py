@@ -128,7 +128,7 @@ class TestExpandModule:
 
     def test_empty_body(self):
         mod = ExpandModule()
-        result = mod.process("", _make_context())
+        result = mod.process("", _make_context({"title": ""}))
         assert result.text == ""
 
 

@@ -63,6 +63,13 @@ cache.db
 test_cache/
 *.db
 
+# Node.js
+node_modules/
+
+# Extension build artifacts
+*.zip
+*.xpi
+
 # Coverage
 .coverage
 htmlcov/

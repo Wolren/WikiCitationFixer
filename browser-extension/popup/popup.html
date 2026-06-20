@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>WikiCitationFixer</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <h2>WikiCitationFixer</h2>
+    <p class="subtitle">Configure your wikifix server connection</p>
+
+    <div class="section">
+      <label for="serverUrl">Server URL</label>
+      <input id="serverUrl" type="text" placeholder="http://localhost:8000">
+    </div>
+
+    <div class="section">
+      <label for="modules">Modules <span class="hint">(comma-separated)</span></label>
+      <input id="modules" type="text" placeholder="expand,authors,dates,ids,spacing,archive">
+    </div>
+
+    <div class="section checkbox-row">
+      <label><input id="force" type="checkbox"> Force refresh</label>
+      <label><input id="ref_names" type="checkbox"> Auto ref names</label>
+    </div>
+
+    <button id="saveBtn" class="btn-primary">Save settings</button>
+    <div id="status" class="status"></div>
+
+    <p class="footer">
+      Open a Wikipedia article and click <strong>Fix citations</strong> in the toolbar.
+    </p>
+  </div>
+  <script src="../browser-polyfill.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

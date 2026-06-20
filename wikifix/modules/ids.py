@@ -6,13 +6,15 @@ Fetches and adds missing identifiers using external APIs:
     - PMID via NCBI E-utilities
     - PMC via NCBI PMC ID Converter
     - S2CID via Semantic Scholar
+    - QID (Wikidata ID) via OpenAlex
 
 All lookups are gated on an existing DOI.
 The set of IDs to attempt is controlled by the ``ids_to_fetch``
-context key (default: issn, pmid, pmc, s2cid).
+context key (default: issn, pmid, pmc, s2cid, qid).
 """
 
 import re
+from typing import Any
 
 from wikifix.base import CitationModule
 from wikifix.config import Mode, ProcessingResult
@@ -25,11 +27,13 @@ class IdEnrichmentModule(CitationModule):
     """Enrich citations with PMID, PMC, ISSN, S2CID via DOI."""
 
     name = "ids"
-    description = "Enrich citations with PMID, PMC, ISSN, S2CID via DOI"
+    description = "Enrich citations with PMID, PMC, ISSN, S2CID, QID via DOI"
 
-    def process(self, text: str, context: dict) -> ProcessingResult:
-        """Fetch missing identifiers (ISSN, PMID, PMC, S2CID) from existing DOI."""
-        changes = {k: False for k in ("issn", "pmid", "pmc", "s2cid", "doi-access")}
+    def process(self, text: str, context: dict[str, Any]) -> ProcessingResult:
+        """Fetch missing identifiers (ISSN, PMID, PMC, S2CID, QID) from existing DOI."""
+        changes = {
+            k: False for k in ("issn", "pmid", "pmc", "s2cid", "qid", "doi-access")
+        }
         api = context.get("api")
         mode: Mode = context.get("mode", Mode.INCREMENTAL)
         wanted: set[str] = set(
@@ -124,5 +128,19 @@ class IdEnrichmentModule(CitationModule):
                     changes["s2cid"] = True
                     action = "Updated" if mode == Mode.FORCE_REFRESH else "Added"
                     log.info("    + %s S2CID %s", action, s2cid)
+
+        # --- QID (Wikidata ID) ---
+        if "qid" in wanted:
+            has = bool(re.search(r"\|\s*qid\s*=", text))
+            if mode == Mode.FORCE_REFRESH and has:
+                text = re.sub(r"\|\s*qid\s*=[^\|}]+", "", text)
+                has = False
+            if not has:
+                qid = api.doi_to_qid(doi)
+                if qid:
+                    text += f" |qid={qid}"
+                    changes["qid"] = True
+                    action = "Updated" if mode == Mode.FORCE_REFRESH else "Added"
+                    log.info("    + %s QID %s", action, qid)
 
         return ProcessingResult(text=text, changes=changes)
