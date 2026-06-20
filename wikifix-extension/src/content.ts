@@ -258,6 +258,32 @@ async function onClick(): Promise<void> {
   }
 }
 
+function updateEditorContent(text: string): void {
+  const textarea = document.getElementById("wpTextbox1") as HTMLTextAreaElement | null;
+  if (textarea) {
+    textarea.value = text;
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
+  const cmEditor = document.querySelector(".cm-editor");
+  if (cmEditor) {
+    const script = document.createElement("script");
+    script.textContent =
+      `document.querySelector('.cm-editor')?.__cmView?.dispatch` +
+      `({changes:{from:0,to:document.querySelector('.cm-editor')?.__cmView?.state?.doc?.length||0,insert:${JSON.stringify(text)}});` +
+      `document.querySelector('.cm-editor')?.cmView?.dispatch` +
+      `({changes:{from:0,to:document.querySelector('.cm-editor')?.cmView?.state?.doc?.length||0,insert:${JSON.stringify(text)}});` +
+      `try{` +
+      `var cm=document.querySelector('.cm-editor');` +
+      `if(cm){var keys=Object.keys(cm);for(var i=0;i<keys.length;i++){` +
+      `var v=cm[keys[i]];if(v&&v.dispatch&&v.state){` +
+      `v.dispatch({changes:{from:0,to:v.state.doc.length,insert:${JSON.stringify(text)}}});break;}}}` +
+      `}catch(e){}`;
+    document.body.appendChild(script);
+    script.remove();
+  }
+}
+
 async function fixInEditor(settings: StorageSettings): Promise<void> {
   const textarea = document.getElementById("wpTextbox1") as HTMLTextAreaElement | null;
   if (!textarea) {
@@ -292,10 +318,9 @@ async function fixInEditor(settings: StorageSettings): Promise<void> {
     showNotification("info", "No citation changes needed.");
     return;
   }
-  textarea.value = fixed;
+  updateEditorContent(fixed);
   const changeCount = (diff.match(/^\+/gm) || []).length;
   showNotification("success", `${changeCount} citation change${changeCount !== 1 ? "s" : ""} applied. Review and save.`);
-  textarea.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
 async function fixViaServer(settings: StorageSettings): Promise<void> {
