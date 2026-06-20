@@ -11,15 +11,52 @@ const PANEL_ID = "wikifix-panel";
 const NOTE_ID = "wikifix-note";
 const STORAGE_KEY = "wikifix_settings";
 
+const WAND_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>';
+
 const CSS = `
 #${BUTTON_ID} {
-  margin: 0 8px; padding: 4px 12px;
-  background: #36c; color: #fff;
-  border: 1px solid #2a4b8d; border-radius: 2px;
-  cursor: pointer; font-size: 13px; white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  background: #3366cc;
+  color: #fff;
+  border: 1px solid #2a4b8d;
+  border-radius: 2px;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  white-space: nowrap;
+  line-height: 1.4;
+  transition: background 100ms;
+  box-sizing: border-box;
 }
 #${BUTTON_ID}:hover { background: #447ff5; }
-#${BUTTON_ID}:disabled { background: #72777d; cursor: wait; }
+#${BUTTON_ID}:active { background: #2a4b8d; }
+#${BUTTON_ID}:disabled { background: #72777d; border-color: #54595d; cursor: wait; opacity: 0.8; }
+#${BUTTON_ID} svg { flex-shrink: 0; }
+
+#${BUTTON_ID}.wikifix-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: #f8f9fa;
+  color: #202122;
+  border: 1px solid #a2a9b1;
+  border-radius: 2px;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  white-space: nowrap;
+  line-height: 1.4;
+  transition: background 100ms, border-color 100ms;
+  box-sizing: border-box;
+}
+#${BUTTON_ID}.wikifix-toolbar-btn:hover { background: #fff; border-color: #72777d; }
+#${BUTTON_ID}.wikifix-toolbar-btn:active { background: #eaecf0; border-color: #54595d; }
+#${BUTTON_ID}.wikifix-toolbar-btn:disabled { background: #eaecf0; border-color: #c8ccd1; cursor: wait; opacity: 0.7; }
+#${BUTTON_ID}.wikifix-toolbar-btn svg { flex-shrink: 0; }
 
 #${PANEL_ID} {
   position: fixed; top: 60px; right: 20px;
@@ -27,8 +64,8 @@ const CSS = `
   background: #fff; border: 1px solid #a2a9b1;
   border-radius: 4px; box-shadow: 0 2px 12px rgba(0,0,0,0.25);
   z-index: 9999; overflow-y: auto;
-  padding: 16px; font-family: sans-serif; font-size: 14px;
-  display: none; line-height: 1.5;
+  padding: 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px; display: none; line-height: 1.5;
 }
 #${PANEL_ID} h3 { margin: 0 0 8px; font-size: 16px; }
 #${PANEL_ID} pre {
@@ -36,9 +73,9 @@ const CSS = `
   border-radius: 2px; font-size: 12px; overflow-x: auto;
   white-space: pre-wrap; max-height: 350px; overflow-y: auto;
 }
-#${PANEL_ID} .actions { margin-top: 10px; display: flex; gap: 8px; }
-#${PANEL_ID} .btn { padding: 6px 16px; border: none; border-radius: 2px; cursor: pointer; font-size: 13px; text-decoration: none; }
-#${PANEL_ID} .btn-primary { background: #36c; color: #fff; }
+#${PANEL_ID} .actions { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; }
+#${PANEL_ID} .btn { padding: 6px 16px; border: none; border-radius: 2px; cursor: pointer; font-size: 13px; text-decoration: none; font-family: inherit; display: inline-flex; align-items: center; gap: 4px; }
+#${PANEL_ID} .btn-primary { background: #3366cc; color: #fff; }
 #${PANEL_ID} .btn-primary:hover { background: #447ff5; }
 #${PANEL_ID} .btn-close { background: #eaecf0; color: #202122; }
 #${PANEL_ID} .btn-close:hover { background: #c8ccd1; }
@@ -48,14 +85,19 @@ const CSS = `
 @media (prefers-color-scheme: dark) {
   #${BUTTON_ID} { background: #3366cc; color: #fff; border-color: #447ff5; }
   #${BUTTON_ID}:hover { background: #447ff5; }
-  #${BUTTON_ID}:disabled { background: #555; }
+  #${BUTTON_ID}:active { background: #2a4b8d; }
+  #${BUTTON_ID}:disabled { background: #555; border-color: #444; }
+
+  #${BUTTON_ID}.wikifix-toolbar-btn { background: #2d2d2d; color: #d4d4d4; border-color: #555; }
+  #${BUTTON_ID}.wikifix-toolbar-btn:hover { background: #3d3d3d; border-color: #72777d; }
+  #${BUTTON_ID}.wikifix-toolbar-btn:active { background: #1e1e1e; border-color: #54595d; }
+  #${BUTTON_ID}.wikifix-toolbar-btn:disabled { background: #333; border-color: #444; }
+
   #${PANEL_ID} {
     background: #1e1e1e; border-color: #444; color: #d4d4d4;
     box-shadow: 0 2px 12px rgba(0,0,0,0.5);
   }
-  #${PANEL_ID} pre {
-    background: #2d2d2d; border-color: #444; color: #d4d4d4;
-  }
+  #${PANEL_ID} pre { background: #2d2d2d; border-color: #444; color: #d4d4d4; }
   #${PANEL_ID} .btn-primary { background: #3366cc; }
   #${PANEL_ID} .btn-close { background: #444; color: #d4d4d4; }
   #${PANEL_ID} .btn-close:hover { background: #555; }
@@ -66,9 +108,10 @@ const CSS = `
 #${NOTE_ID} {
   position: fixed; top: 20px; right: 20px;
   padding: 12px 20px; border-radius: 4px;
-  font-family: sans-serif; font-size: 14px; line-height: 1.5;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px; line-height: 1.5;
   z-index: 9999; box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-  display: none; max-width: 400px;
+  display: none; max-width: 420px;
 }
 #${NOTE_ID}.wikifix-success { background: #d5fdf4; border: 1px solid #00af89; color: #14866d; }
 #${NOTE_ID}.wikifix-error { background: #fee7e6; border: 1px solid #d33; color: #a00; }
@@ -97,27 +140,61 @@ export function addButton(): void {
   if (document.getElementById(BUTTON_ID)) return;
   const btn = document.createElement("button");
   btn.id = BUTTON_ID;
-  btn.textContent = "Fix citations";
-  btn.addEventListener("click", onClick);
+  btn.innerHTML = `${WAND_ICON} Fix citations`;
 
   if (isEditPage()) {
     addButtonToEditPage(btn);
   } else {
     addButtonToArticlePage(btn);
   }
+  btn.addEventListener("click", onClick);
 }
 
 function addButtonToEditPage(btn: HTMLButtonElement): void {
   const toolbar = document.getElementById("wikiEditor-ui-toolbar");
   if (toolbar) {
-    toolbar.appendChild(btn);
+    btn.classList.add("wikifix-toolbar-btn");
+    const bottom = document.getElementById("wikiEditor-ui-bottom");
+    if (bottom) {
+      const group = document.createElement("div");
+      group.className = "group";
+      group.style.cssText = "display:inline-block;padding:6px 4px;vertical-align:middle;";
+      group.appendChild(btn);
+      bottom.appendChild(group);
+    } else {
+      const wrapper = document.createElement("span");
+      wrapper.style.cssText = "display:inline-block;padding:6px 4px;vertical-align:middle;";
+      wrapper.appendChild(btn);
+      toolbar.appendChild(wrapper);
+    }
     return;
   }
+
+  const editform = document.getElementById("editform");
+  if (editform) {
+    const row = document.createElement("div");
+    row.style.cssText =
+      "display:flex;justify-content:flex-end;padding:4px 0 0;margin-bottom:0;";
+    row.appendChild(btn);
+    const textarea = document.getElementById("wpTextbox1");
+    if (textarea && textarea.parentNode) {
+      textarea.parentNode.insertBefore(row, textarea);
+    } else {
+      editform.insertBefore(row, editform.firstChild);
+    }
+    return;
+  }
+
   const textarea = document.getElementById("wpTextbox1");
   if (textarea && textarea.parentNode) {
-    textarea.parentNode.insertBefore(btn, textarea.nextSibling);
+    const row = document.createElement("div");
+    row.style.cssText =
+      "display:flex;justify-content:flex-end;padding:4px 0;";
+    row.appendChild(btn);
+    textarea.parentNode.insertBefore(row, textarea);
     return;
   }
+
   document.body.appendChild(btn);
 }
 
@@ -157,21 +234,23 @@ export async function getSettings(): Promise<StorageSettings> {
 async function onClick(): Promise<void> {
   const btn = document.getElementById(BUTTON_ID) as HTMLButtonElement;
   btn.disabled = true;
-  btn.textContent = "Fixing...";
+  btn.innerHTML = `${WAND_ICON} Working...`;
   try {
     const settings = await getSettings();
     if (isEditPage()) {
       await fixInEditor(settings);
+      btn.innerHTML = `${WAND_ICON} Fix citations`;
     } else if (settings.serverUrl) {
       await fixViaServer(settings);
+      btn.innerHTML = `${WAND_ICON} Fix citations`;
     } else {
       await fixLocally(settings);
+      btn.innerHTML = `${WAND_ICON} Fix citations`;
     }
   } catch (e: unknown) {
     showNotification("error", `Error: ${(e as Error).message}`);
-  } finally {
+    btn.innerHTML = `${WAND_ICON} Retry`;
     btn.disabled = false;
-    btn.textContent = "Fix citations";
   }
 }
 
@@ -424,8 +503,8 @@ export function showDiffPanel(fixed: string, diff: string, title: string): void 
     <div class="summary">${changeCount} change${changeCount !== 1 ? "s" : ""} made</div>
     <pre>${escapeHtml(diff || "(no changes)")}</pre>
     <div class="actions">
-      <button class="btn btn-primary" onclick="navigator.clipboard.writeText(${JSON.stringify(fixed)}).then(t=>{this.textContent='Copied!'})">Copy wikitext</button>
-      <a href="${link}" target="_blank" class="btn btn-primary">Open editor</a>
+      <button class="btn btn-primary" onclick="navigator.clipboard.writeText(${JSON.stringify(fixed)}).then(t=>{this.textContent='Copied!'})">${WAND_ICON} Copy wikitext</button>
+      <a href="${link}" target="_blank" class="btn btn-primary">${WAND_ICON} Open editor</a>
     </div>`;
   panel.style.display = "block";
   panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
