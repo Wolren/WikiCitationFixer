@@ -143,7 +143,11 @@ export function addButton(): void {
   btn.innerHTML = `${WAND_ICON} Fix citations`;
 
   if (isEditPage()) {
-    addButtonToEditPage(btn);
+    if (document.getElementById("wikiEditor-ui-toolbar") || document.getElementById("editform")) {
+      addButtonToEditPage(btn);
+    } else {
+      setTimeout(() => addButtonToEditPage(btn), 1000);
+    }
   } else {
     addButtonToArticlePage(btn);
   }
@@ -235,33 +239,53 @@ async function onClick(): Promise<void> {
   const btn = document.getElementById(BUTTON_ID) as HTMLButtonElement;
   btn.disabled = true;
   btn.innerHTML = `${WAND_ICON} Working...`;
+  let hadError = false;
   try {
     const settings = await getSettings();
     if (isEditPage()) {
       await fixInEditor(settings);
-      btn.innerHTML = `${WAND_ICON} Fix citations`;
     } else if (settings.serverUrl) {
       await fixViaServer(settings);
-      btn.innerHTML = `${WAND_ICON} Fix citations`;
     } else {
       await fixLocally(settings);
-      btn.innerHTML = `${WAND_ICON} Fix citations`;
     }
   } catch (e: unknown) {
+    hadError = true;
     showNotification("error", `Error: ${(e as Error).message}`);
-    btn.innerHTML = `${WAND_ICON} Retry`;
+  } finally {
     btn.disabled = false;
+    btn.innerHTML = hadError ? `${WAND_ICON} Retry` : `${WAND_ICON} Fix citations`;
   }
 }
 
 async function fixInEditor(settings: StorageSettings): Promise<void> {
   const textarea = document.getElementById("wpTextbox1") as HTMLTextAreaElement | null;
   if (!textarea) {
-    showNotification("error", "No editor textarea found.");
+    showNotification("error", "No editor textarea found. Reload the edit page and try again.");
     return;
   }
+
+  let wikitext = textarea.value;
+  if (!wikitext.trim()) {
+    showNotification("info", "Waiting for editor to load...");
+    await new Promise<void>((resolve) => {
+      const check = () => {
+        if (textarea.value.trim()) {
+          resolve();
+        } else {
+          setTimeout(check, 300);
+        }
+      };
+      setTimeout(check, 500);
+    });
+    wikitext = textarea.value;
+    if (!wikitext.trim()) {
+      showNotification("error", "Editor textarea is empty. Type or load article text first.");
+      return;
+    }
+  }
+
   showNotification("info", "Processing citations...");
-  const wikitext = textarea.value;
   const fixed = await processWikitext(wikitext, settings.ref_names);
   const diff = generateDiff(wikitext, fixed);
   if (wikitext === fixed) {
