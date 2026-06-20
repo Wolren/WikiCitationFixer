@@ -272,7 +272,10 @@ function updateEditorContent(text: string): void {
 
       function upd(v){if(v&&v.dispatch&&v.state){v.dispatch({changes:{from:0,to:v.state.doc.length,insert:t}});return true;}return false;}
 
-      if(typeof mw!=='undefined'&&mw.codemirror&&upd(mw.codemirror.editor))return;
+      if(typeof mw!=='undefined'&&mw.codemirror){
+        if(Array.isArray(mw.codemirror.editors)){for(var i=0;i<mw.codemirror.editors.length;i++){if(upd(mw.codemirror.editors[i].cm||mw.codemirror.editors[i]))return;}}
+        if(upd(mw.codemirror.editor))return;
+      }
 
       var cm=document.querySelector('.cm-editor');
       if(!cm)return;
