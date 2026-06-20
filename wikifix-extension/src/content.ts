@@ -265,20 +265,27 @@ function updateEditorContent(text: string): void {
     textarea.dispatchEvent(new Event("input", { bubbles: true }));
   }
 
-  const cmEditor = document.querySelector(".cm-editor");
-  if (cmEditor) {
+  if (document.querySelector(".cm-editor")) {
     const script = document.createElement("script");
-    script.textContent =
-      `document.querySelector('.cm-editor')?.__cmView?.dispatch` +
-      `({changes:{from:0,to:document.querySelector('.cm-editor')?.__cmView?.state?.doc?.length||0,insert:${JSON.stringify(text)}});` +
-      `document.querySelector('.cm-editor')?.cmView?.dispatch` +
-      `({changes:{from:0,to:document.querySelector('.cm-editor')?.cmView?.state?.doc?.length||0,insert:${JSON.stringify(text)}});` +
-      `try{` +
-      `var cm=document.querySelector('.cm-editor');` +
-      `if(cm){var keys=Object.keys(cm);for(var i=0;i<keys.length;i++){` +
-      `var v=cm[keys[i]];if(v&&v.dispatch&&v.state){` +
-      `v.dispatch({changes:{from:0,to:v.state.doc.length,insert:${JSON.stringify(text)}}});break;}}}` +
-      `}catch(e){}`;
+    script.textContent = `(function(){
+      var t=${JSON.stringify(text)};
+
+      function upd(v){if(v&&v.dispatch&&v.state){v.dispatch({changes:{from:0,to:v.state.doc.length,insert:t}});return true;}return false;}
+
+      if(typeof mw!=='undefined'&&mw.codemirror&&upd(mw.codemirror.editor))return;
+
+      var cm=document.querySelector('.cm-editor');
+      if(!cm)return;
+      if(upd(cm.__cmView)||upd(cm.cmView))return;
+      var keys=Object.keys(cm);
+      for(var i=0;i<keys.length;i++){if(upd(cm[keys[i]]))return;}
+
+      var content=cm.querySelector('.cm-content');
+      if(content){
+        keys=Object.keys(content);
+        for(var i=0;i<keys.length;i++){if(upd(content[keys[i]]))return;}
+      }
+    })();`;
     document.body.appendChild(script);
     script.remove();
   }
