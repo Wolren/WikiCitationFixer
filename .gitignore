@@ -74,3 +74,6 @@ node_modules/
 .coverage
 htmlcov/
 .coverage.*
+
+# Extension moved to separate repo
+/wikifix-extension/
