@@ -40,3 +40,8 @@ jobs:
 
       - name: Run tests with pytest
         run: pytest --cov=wikifix --cov-report=term-missing
+
+      - name: Build package
+        run: |
+          pip install build
+          python -m build

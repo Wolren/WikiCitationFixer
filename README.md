@@ -1,5 +1,7 @@
 # WikiCitationFixer
 
+[![CI](https://github.com/Wolren/WikiCitationFixer/actions/workflows/ci.yml/badge.svg)](https://github.com/Wolren/WikiCitationFixer/actions/workflows/ci.yml)
+
 Modular Wikipedia citation fixer for CS1/CS2 templates (cite journal, cite web, cite book, citation, etc.).
 
 ## Quick start
