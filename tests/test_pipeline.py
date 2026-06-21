@@ -610,10 +610,6 @@ class TestPipelineSequence:
         result = pipeline._add_ref_name(text, 0, " |title=Test", "citation", set(), {})
         assert result == text
 
-    def test_canonical_type_fallthrough(self):
-        pipeline = CitationPipeline(modules=[])
-        assert pipeline._canonical_type("citation") == "citation"
-
     def test_pmid_duplicate_detection(self, tmp_path):
         inp = tmp_path / "in.txt"
         out = tmp_path / "out.txt"

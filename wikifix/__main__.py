@@ -14,6 +14,7 @@ Usage:
 
 import argparse
 import sys
+import traceback
 from pathlib import Path
 
 from wikifix import (
@@ -33,6 +34,7 @@ from wikifix import (
 )
 from wikifix.logger import get_logger, setup_logger
 from wikifix.modules.sfn import convert_to_sfn as _convert_to_sfn
+from wikifix.services import ApiClient
 
 log = get_logger()
 
@@ -257,8 +259,6 @@ def main() -> None:
     # --clear-cache (bootstrap a minimal ApiClient just to clear)
     if args.clear_cache:
         api_config = ApiConfig.from_env(args.env)
-        from wikifix.services import ApiClient
-
         client = ApiClient(api_config)
         client.clear_cache()
         sys.exit(0)
@@ -374,8 +374,6 @@ def main() -> None:
         sys.exit(1)
     except Exception as e:
         log.error("ERROR: %s", e)
-        import traceback
-
         traceback.print_exc()
         sys.exit(1)
 

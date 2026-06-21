@@ -21,41 +21,52 @@ class DateModule(CitationModule):
     name = "dates"
     description = "Normalize dates to Wikipedia format (preserving day info)"
 
-    MONTHS_SHORT = {
+    _MONTH = {
         "jan": "January",
-        "feb": "February",
-        "mar": "March",
-        "apr": "April",
-        "may": "May",
-        "jun": "June",
-        "jul": "July",
-        "aug": "August",
-        "sep": "September",
-        "oct": "October",
-        "nov": "November",
-        "dec": "December",
-    }
-
-    MONTHS_FULL = {
         "january": "January",
+        "feb": "February",
         "february": "February",
+        "mar": "March",
         "march": "March",
+        "apr": "April",
         "april": "April",
         "may": "May",
+        "jun": "June",
         "june": "June",
+        "jul": "July",
         "july": "July",
+        "aug": "August",
         "august": "August",
+        "sep": "September",
         "september": "September",
+        "oct": "October",
         "october": "October",
+        "nov": "November",
         "november": "November",
+        "dec": "December",
         "december": "December",
+    }
+
+    _NUM_TO_MONTH = {
+        "01": "January",
+        "02": "February",
+        "03": "March",
+        "04": "April",
+        "05": "May",
+        "06": "June",
+        "07": "July",
+        "08": "August",
+        "09": "September",
+        "10": "October",
+        "11": "November",
+        "12": "December",
     }
 
     @staticmethod
     def _normalize_month(m: str) -> str:
         """Normalize a month name to title-case (e.g. ``jan`` → ``January``)."""
         low = m.strip().lower()
-        return DateModule.MONTHS_FULL.get(low, DateModule.MONTHS_SHORT.get(low, m))
+        return DateModule._MONTH.get(low, m)
 
     def _normalize(self, date: str) -> str:
         """Convert a date string to Wikipedia format (DD Month YYYY)."""
@@ -67,43 +78,13 @@ class DateModule(CitationModule):
         # ISO YYYY-MM-DD → DD Month YYYY
         if m := re.match(r"(\d{4})-(\d{1,2})-(\d{1,2})$", original):
             y, mo, d = m.group(1), m.group(2).zfill(2), m.group(3).zfill(2)
-            mn = self._normalize_month(
-                {
-                    "01": "January",
-                    "02": "February",
-                    "03": "March",
-                    "04": "April",
-                    "05": "May",
-                    "06": "June",
-                    "07": "July",
-                    "08": "August",
-                    "09": "September",
-                    "10": "October",
-                    "11": "November",
-                    "12": "December",
-                }.get(mo, mo)
-            )
+            mn = self._NUM_TO_MONTH.get(mo, mo)
             return f"{int(d)} {mn} {y}"
 
         # ISO YYYY-MM → Month YYYY
         if m := re.match(r"(\d{4})-(\d{1,2})$", original):
             y, mo = m.group(1), m.group(2).zfill(2)
-            mn = self._normalize_month(
-                {
-                    "01": "January",
-                    "02": "February",
-                    "03": "March",
-                    "04": "April",
-                    "05": "May",
-                    "06": "June",
-                    "07": "July",
-                    "08": "August",
-                    "09": "September",
-                    "10": "October",
-                    "11": "November",
-                    "12": "December",
-                }.get(mo, mo)
-            )
+            mn = self._NUM_TO_MONTH.get(mo, mo)
             return f"{mn} {y}"
 
         # "Month DD, YYYY" or "Month DD YYYY" → "DD Month YYYY"

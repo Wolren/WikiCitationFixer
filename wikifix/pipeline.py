@@ -229,7 +229,7 @@ class CitationPipeline:
             text = (
                 text[: match.start()]
                 + "{{"
-                + self._canonical_type(result.template_type)
+                + result.template_type
                 + body
                 + "}}"
                 + text[match.end() :]
@@ -518,13 +518,6 @@ class CitationPipeline:
         """Normalise the template name (cite journal, cite book, citation, …)."""
         m = re.match(r"\{\{(citation|cite\s*\w+)", full_match, re.IGNORECASE)
         return m.group(1).strip().lower() if m else "citation"
-
-    @staticmethod
-    def _canonical_type(t: str) -> str:
-        """Return lowercase cite type for consistent output."""
-        if t.startswith("cite "):
-            return t
-        return t
 
     @staticmethod
     def _extract_title(body: str) -> str:

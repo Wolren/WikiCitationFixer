@@ -14,6 +14,8 @@ from typing import Any
 
 from diskcache import Cache as _DiskCache
 
+_WEEK_SECONDS = 60 * 60 * 24 * 7
+
 
 class ResponseCache:
     """Thin wrapper around diskcache for API response caching.
@@ -23,7 +25,7 @@ class ResponseCache:
     length or special characters.
     """
 
-    def __init__(self, directory: str | Path, ttl: int = 604800):
+    def __init__(self, directory: str | Path, ttl: int = _WEEK_SECONDS):
         """
         Args:
             directory: Path to the cache directory (created if missing).

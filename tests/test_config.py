@@ -1,5 +1,3 @@
-import builtins
-
 import pytest
 
 from wikifix.config import ApiConfig, CitationStats, Mode, ProcessingResult
@@ -67,16 +65,8 @@ class TestApiConfig:
         env_file = tmp_path / ".env"
         env_file.write_text("CROSSREF_EMAIL=dotenv_test@test.com")
         monkeypatch.delenv("CROSSREF_EMAIL", raising=False)
-        real_import = builtins.__import__
-
-        def mock_import(name, *args, **kwargs):
-            if name == "dotenv":
-                raise ImportError("No module named dotenv")
-            return real_import(name, *args, **kwargs)
-
-        monkeypatch.setattr(builtins, "__import__", mock_import)
         cfg = ApiConfig.from_env(str(env_file))
-        assert cfg.crossref_email == ""
+        assert cfg.crossref_email == "dotenv_test@test.com"
 
     def test_from_env_with_overrides(self):
         cfg = ApiConfig.from_env(cache_dir="/custom/cache", max_workers=8)
@@ -88,6 +78,7 @@ class TestApiConfig:
         env_file.write_text(
             "CROSSREF_EMAIL=from_file@example.com\nNCBI_API_KEY=file_key\n"
         )
+        monkeypatch.delenv("CROSSREF_EMAIL", raising=False)
         monkeypatch.setenv("NCBI_API_KEY", "env_override")
         cfg = ApiConfig.from_env(str(env_file))
         assert cfg.crossref_email == "from_file@example.com"

@@ -14,6 +14,7 @@ Sources tried in order:
 
 import html
 import re
+from functools import lru_cache
 from typing import Any
 
 from wikifix.base import CitationModule
@@ -32,7 +33,17 @@ FIELD_ALIASES = {
 
 def _has_field(text: str, field: str) -> bool:
     """Check whether a parameter already exists in the citation body."""
-    return bool(re.search(rf"\|\s*{field}\s*=", text))
+    return bool(_field_pattern(field).search(text))
+
+
+@lru_cache(maxsize=64)
+def _field_pattern(field: str) -> re.Pattern[str]:
+    return re.compile(rf"\|\s*{field}\s*=")
+
+
+@lru_cache(maxsize=64)
+def _remove_pattern(name: str) -> re.Pattern[str]:
+    return re.compile(rf"\|\s*{re.escape(name)}\s*=[^\|]+")
 
 
 def _add_field(text: str, name: str, value: str, force: bool = False) -> str:
@@ -40,36 +51,33 @@ def _add_field(text: str, name: str, value: str, force: bool = False) -> str:
     if _has_field(text, name):
         if not force:
             return text
-        text = re.sub(rf"\|\s*{re.escape(name)}\s*=[^\|]+", "", text)
+        text = _remove_pattern(name).sub("", text)
     return text + f" |{name}={value}"
 
 
 _WIKIPEDIA_PUBLISHER_SUFFIXES = [
-    r",?\s+(Publishing|Publishers|Publications|Published)\s*$",
-    r",?\s+(Inc|Ltd|LLC|LLP|Corporation|Corp|Company|Co|KG)\s*\.?\s*$",
-    r",?\s+&?\s*(Co|Company|Associates|Partners)\s*\.?\s*$",
-    r"\s+AG\s*$",
-    r"\s+[Gg]mb[Hh]\s*$",
-    r"\s+S\.\s*A\.?\s*$",
-    r"\s+S\.?\s*p\.?\s*a\.?\s*$",
-    r"\s+S\.?\s*r\.?\s*l\.?\s*$",
-    r"\s+B\.?\s*V\.?\s*$",
-    r"\s+S\.?\s*A\.?\s*S\.?\s*$",
-    r"\s+Verlag\s*$",
+    re.compile(p)
+    for p in [
+        r",?\s+(Publishing|Publishers|Publications|Published)\s*$",
+        r",?\s+(Inc|Ltd|LLC|LLP|Corporation|Corp|Company|Co|KG)\s*\.?\s*$",
+        r",?\s+&?\s*(Co|Company|Associates|Partners)\s*\.?\s*$",
+        r"\s+AG\s*$",
+        r"\s+[Gg]mb[Hh]\s*$",
+        r"\s+S\.\s*A\.?\s*$",
+        r"\s+S\.?\s*p\.?\s*a\.?\s*$",
+        r"\s+S\.?\s*r\.?\s*l\.?\s*$",
+        r"\s+B\.?\s*V\.?\s*$",
+        r"\s+S\.?\s*A\.?\s*S\.?\s*$",
+        r"\s+Verlag\s*$",
+    ]
 ]
 
 
 def _clean_publisher(pub: str) -> str:
-    """Clean a publisher string per Wikipedia conventions.
-
-    Strips corporate suffixes (Inc, Ltd, LLC, AG, etc.) and trailing
-    parenthetical English translations. Keeps "Press" and "University
-    Press" as-is. Preserves original-language diacritics when present.
-    """
     result = pub.strip()
     result = re.sub(r"\s*\([^)]*\)\s*$", "", result).strip()
     for pattern in _WIKIPEDIA_PUBLISHER_SUFFIXES:
-        result = re.sub(pattern, "", result).strip()
+        result = pattern.sub("", result).strip()
     return result if result else pub.strip()
 
 

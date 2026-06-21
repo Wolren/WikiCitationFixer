@@ -7,6 +7,7 @@ Usage:
 
 from __future__ import annotations
 
+import difflib
 import os
 import tempfile
 from pathlib import Path
@@ -85,8 +86,6 @@ def fix() -> ResponseReturnValue:
     finally:
         os.unlink(in_path)
         os.unlink(out_path)
-
-    import difflib
 
     diff = "".join(
         difflib.unified_diff(

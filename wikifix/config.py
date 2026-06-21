@@ -8,6 +8,10 @@ from enum import Enum, auto
 from pathlib import Path
 from typing import Any
 
+import dotenv
+
+_WEEK_SECONDS = 60 * 60 * 24 * 7
+
 
 class Mode(Enum):
     """Operating mode for citation processing."""
@@ -35,7 +39,7 @@ class ApiConfig:
     ncbi_api_key: str = ""
     semantic_scholar_api_key: str = ""
     cache_dir: str | None = None
-    cache_ttl: int = 604800
+    cache_ttl: int = _WEEK_SECONDS
     max_workers: int = 4
 
     @staticmethod
@@ -50,12 +54,7 @@ class ApiConfig:
 
                 _get_logger().warning("--env file not found: %s", path)
             else:
-                try:
-                    import dotenv
-
-                    dotenv.load_dotenv(path)
-                except ImportError:
-                    pass
+                dotenv.load_dotenv(path)
         email = os.environ.get("CROSSREF_EMAIL", "")
         ncbi_key = os.environ.get("NCBI_API_KEY", "")
         ss_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY", "")

@@ -22,6 +22,7 @@ Fixes:
 """
 
 import re
+from functools import lru_cache
 from typing import Any
 
 from wikifix.base import CitationModule
@@ -31,18 +32,20 @@ from wikifix.logger import get_logger
 log = get_logger()
 
 # Deprecated CS1/CS2 parameters and their replacements (if any)
-_DEPRECATED = {
-    "month": None,
-    "day": None,
-    "coauthors": None,
-    "coauthor": None,
-    "coeditors": None,
-    "dateformat": None,
-    "separator": None,
-    "seperator": None,
-    "author-separator": None,
-    "author-name-separator": None,
-}
+_DEPRECATED = frozenset(
+    {
+        "month",
+        "day",
+        "coauthors",
+        "coauthor",
+        "coeditors",
+        "dateformat",
+        "separator",
+        "seperator",
+        "author-separator",
+        "author-name-separator",
+    }
+)
 
 _VALID_URL_STATUS = {"live", "dead", "unfit", "usurped", "bot: unknown"}
 
@@ -114,31 +117,39 @@ _TEXT_PARAMS = {
 }
 
 
+@lru_cache(maxsize=128)
+def _get_pattern(field: str) -> re.Pattern[str]:
+    return re.compile(rf"\|\s*{re.escape(field)}\s*=\s*([^|]+)")
+
+
+@lru_cache(maxsize=128)
+def _exists_pattern(field: str) -> re.Pattern[str]:
+    return re.compile(rf"\|\s*{re.escape(field)}\s*=")
+
+
+@lru_cache(maxsize=128)
+def _remove_pattern(field: str) -> re.Pattern[str]:
+    return re.compile(rf"\|\s*{re.escape(field)}\s*=[^|]+")
+
+
 class CleanupModule(CitationModule):
     """Fix common CS1/CS2 template maintenance issues."""
 
     name = "cleanup"
     description = "Fix CS1/CS2 maintenance issues"
 
-    _FIELD_RE = r"\|\s*{}\s*=\s*[^|]+"
-
     @staticmethod
     def _get_field(text: str, field: str) -> str | None:
-        """Extract the value of a parameter from the citation body."""
-        m = re.search(rf"\|\s*{re.escape(field)}\s*=\s*([^|]+)", text)
+        m = _get_pattern(field).search(text)
         return m.group(1).strip() if m else None
 
     @staticmethod
     def _remove_field(text: str, field: str) -> str:
-        """Remove a parameter and its value from the citation body."""
-        return re.sub(
-            CleanupModule._FIELD_RE.format(re.escape(field)), "", text, count=1
-        )
+        return _remove_pattern(field).sub("", text, count=1)
 
     @staticmethod
     def _field_exists(text: str, field: str) -> bool:
-        """Check whether a parameter name appears in the citation body."""
-        return bool(re.search(rf"\|\s*{re.escape(field)}\s*=", text))
+        return _exists_pattern(field).search(text) is not None
 
     @staticmethod
     def _fix_isbn(raw: str) -> str | None:
@@ -460,29 +471,26 @@ class CleanupModule(CitationModule):
     @staticmethod
     def _set_field(text: str, field: str, new_value: str) -> str:
         """Replace the entire |field= parameter with a clean version."""
-        pattern = rf"\|\s*{re.escape(field)}\s*=\s*[^|]+"
-        m = re.search(pattern, text)
+        m = _get_pattern(field).search(text)
         if not m:
             return text
         old = m.group(0).rstrip()
         return text.replace(old, f"| {field} = {new_value}", 1)
 
+    _STRIP_LEADING = re.compile(
+        r"^(vol\.?\s*|volume\s*|v\.\s*|no\.?\s*|number\s*|issue\s*|"
+        r"p\.\s*|pp\.\s*|page\s*|pages\s*|ed\.?\s*|edition\s*)",
+        re.IGNORECASE,
+    )
+    _STRIP_TRAILING = re.compile(
+        r"\s*(vol\.?|volume|no\.?|number|issue|p\.|pp\.|"
+        r"page|pages|ed\.?|edition)\s*$",
+        re.IGNORECASE,
+    )
+
     @staticmethod
     def _strip_extra_text(value: str, field: str) -> str:
-        """Strip leading/trailing volume/issue/page/edition prefixes from a value."""
         v = value.strip()
-        v = re.sub(
-            r"^(vol\.?\s*|volume\s*|v\.\s*|no\.?\s*|number\s*|issue\s*|"
-            r"p\.\s*|pp\.\s*|page\s*|pages\s*|ed\.?\s*|edition\s*)",
-            "",
-            v,
-            flags=re.IGNORECASE,
-        ).strip()
-        v = re.sub(
-            r"\s*(vol\.?|volume|no\.?|number|issue|p\.|pp\.|"
-            r"page|pages|ed\.?|edition)\s*$",
-            "",
-            v,
-            flags=re.IGNORECASE,
-        ).strip()
+        v = CleanupModule._STRIP_LEADING.sub("", v).strip()
+        v = CleanupModule._STRIP_TRAILING.sub("", v).strip()
         return v
