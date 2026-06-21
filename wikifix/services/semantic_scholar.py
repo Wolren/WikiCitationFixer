@@ -3,14 +3,17 @@
 
 from typing import cast
 
-from wikifix.logger import get_logger
 from wikifix.cache import ResponseCache
+from wikifix.logger import get_logger
 
 log = get_logger()
 
 
 class SemanticScholarMixin:
-    """Semantic Scholar API methods. Requires self._session, _rate_limit, _cached_get/set, clean_doi."""
+    """Semantic Scholar API methods.
+
+    Requires self._session, _rate_limit, _cached_get/set, clean_doi.
+    """
 
     def doi_to_s2cid(self, doi: str) -> str | None:
         doi = self.clean_doi(doi)

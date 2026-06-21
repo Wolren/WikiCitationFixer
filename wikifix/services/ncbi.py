@@ -1,16 +1,19 @@
 # mypy: disable-error-code="attr-defined"
 """NCBI E-utilities mixin: DOI→PMID, PMID→PMC, PubMed author fetch."""
 
-from typing import Any, cast
+from typing import cast
 
-from wikifix.logger import get_logger
 from wikifix.cache import ResponseCache
+from wikifix.logger import get_logger
 
 log = get_logger()
 
 
 class NcbiMixin:
-    """NCBI API methods. Requires self._session, _rate_limit, _cached_get/set, clean_doi."""
+    """NCBI API methods.
+
+    Requires self._session, _rate_limit, _cached_get/set, clean_doi.
+    """
 
     def _ncbi_params(self, **kwargs: str | None) -> dict[str, str | None]:
         params: dict[str, str | None] = dict(kwargs)

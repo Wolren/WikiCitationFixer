@@ -263,7 +263,6 @@ class TestMainModuleOptions:
             ],
         ):
             main()
-        captured = capsys.readouterr()
         assert out.exists()
 
     def test_force_refresh_mode(self, tmp_path):

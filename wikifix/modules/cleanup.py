@@ -204,8 +204,8 @@ class CleanupModule(CitationModule):
         if has(text, "magazine"):
             return "cite magazine"
 
-        # cite journal: |journal=, |bibcode=, |arxiv=
-        if has(text, "journal") or has(text, "bibcode") or has(text, "arxiv"):
+        # cite journal: |journal=, |bibcode= (arxiv alone can't supply journal)
+        if has(text, "journal") or has(text, "bibcode"):
             return "cite journal"
 
         # cite web: |website=

@@ -32,6 +32,7 @@ from wikifix import (
     __version__,
 )
 from wikifix.logger import get_logger, setup_logger
+from wikifix.modules.sfn import convert_to_sfn as _convert_to_sfn
 
 log = get_logger()
 
@@ -89,6 +90,11 @@ def build_argparser() -> argparse.ArgumentParser:
         help="Detect duplicate citations (adds dedup module)",
     )
     p.add_argument(
+        "--sfn",
+        action="store_true",
+        help="Convert inline <ref>{{cite...}}</ref> to {{sfn}} short-footnotes",
+    )
+    p.add_argument(
         "--modules",
         "-m",
         default="expand,authors,dates,ids,spacing,archive",
@@ -117,7 +123,7 @@ def build_argparser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--spacing-style",
-        choices=["standard", "compact"],
+        choices=["standard", "compact", "wide"],
         default="standard",
         help="Spacing format: 'standard' (| param = value) or 'compact' (|param=value)",
     )
@@ -353,6 +359,12 @@ def main() -> None:
 
     try:
         pipeline.process_file(infile, outfile)
+        if args.sfn:
+            log.info("")
+            log.info("Converting inline citations to {{sfn}}...")
+            text = outfile.read_text(encoding="utf-8")
+            text = _convert_to_sfn(text)
+            outfile.write_text(text, encoding="utf-8")
         log.info("")
         log.info("+ Output saved to: %s", outfile)
         if args.diff:

@@ -1,4 +1,3 @@
-import pytest
 import requests_mock
 
 from wikifix.config import ApiConfig, Mode

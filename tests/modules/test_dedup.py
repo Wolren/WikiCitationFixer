@@ -1,8 +1,3 @@
-from unittest.mock import patch
-
-import pytest
-import requests_mock
-
 from wikifix.config import ApiConfig, Mode
 from wikifix.modules.dedup import DedupModule
 from wikifix.services import ApiClient

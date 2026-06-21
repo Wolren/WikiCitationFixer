@@ -3,14 +3,17 @@
 
 from typing import Any, cast
 
-from wikifix.logger import get_logger
 from wikifix.cache import ResponseCache
+from wikifix.logger import get_logger
 
 log = get_logger()
 
 
 class EuropePmcMixin:
-    """Europe PMC API methods. Requires self._session, _rate_limit, _cached_get/set, clean_doi."""
+    """Europe PMC API methods.
+
+    Requires self._session, _rate_limit, _cached_get/set, clean_doi.
+    """
 
     def fetch_europepmc(self, doi: str) -> dict[str, Any] | None:
         doi = self.clean_doi(doi)

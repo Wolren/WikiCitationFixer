@@ -1,8 +1,3 @@
-from unittest.mock import patch
-
-import pytest
-import requests_mock
-
 from wikifix.config import ApiConfig, Mode
 from wikifix.modules.sort import SortModule, _parse_param_name
 from wikifix.services import ApiClient

@@ -47,8 +47,12 @@ paste_corrected.txt
 
 # Testing
 .pytest_cache/
+.ruff_cache/
 .coverage
 htmlcov/
+.coverage.*
+tests/_temp_*
+tests/_test_therians.py
 
 # Logs
 *.log
@@ -69,11 +73,6 @@ node_modules/
 # Extension build artifacts
 *.zip
 *.xpi
-
-# Coverage
-.coverage
-htmlcov/
-.coverage.*
 
 # Extension moved to separate repo
 /wikifix-extension/

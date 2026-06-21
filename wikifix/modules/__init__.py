@@ -12,6 +12,7 @@ from wikifix.modules.dates import DateModule
 from wikifix.modules.dedup import DedupModule
 from wikifix.modules.expand import ExpandModule
 from wikifix.modules.ids import IdEnrichmentModule
+from wikifix.modules.sfn import convert_to_sfn
 from wikifix.modules.sort import SortModule
 from wikifix.modules.spacing import SpacingModule
 
@@ -25,4 +26,5 @@ __all__ = [
     "IdEnrichmentModule",
     "SortModule",
     "SpacingModule",
+    "convert_to_sfn",
 ]

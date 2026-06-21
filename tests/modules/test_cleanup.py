@@ -1,6 +1,3 @@
-import pytest
-import requests_mock
-
 from wikifix.config import ApiConfig, Mode
 from wikifix.modules.cleanup import CleanupModule
 from wikifix.services import ApiClient

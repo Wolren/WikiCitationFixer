@@ -7,7 +7,7 @@ import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import requests
 from requests.adapters import HTTPAdapter

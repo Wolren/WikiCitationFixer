@@ -29,7 +29,9 @@ def _process(text: str) -> str:
         mode=Mode.INCREMENTAL,
         api_config=ApiConfig(cache_dir=None, max_workers=1),
     )
-    import tempfile, time, os
+    import os
+    import tempfile
+    import time
 
     in_fd, in_p = tempfile.mkstemp(suffix=".txt")
     os.close(in_fd)

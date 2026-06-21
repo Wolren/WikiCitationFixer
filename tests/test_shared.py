@@ -21,8 +21,11 @@ FIXTURE_PATH = (
     / "shared.json"
 )
 
-with open(FIXTURE_PATH, encoding="utf-8") as f:
-    FIXTURES = json.load(f)
+if FIXTURE_PATH.exists():
+    with open(FIXTURE_PATH, encoding="utf-8") as f:
+        FIXTURES = json.load(f)
+else:
+    FIXTURES = []
 
 
 def _process(

@@ -56,6 +56,16 @@ class SpacingModule(CitationModule):
             text = re.sub(
                 r"\|\s*([^=\|]+?)\s*=\s*([^\|]+?)(?=\s*\||$)", compact_eq, text
             )
+        elif style == "wide":
+
+            def wide_eq(m: re.Match[str]) -> str:
+                param = m.group(1).strip()
+                value = m.group(2).strip()
+                return f"| {param} = {value} "
+
+            text = re.sub(
+                r"\|\s*([^=\|]+?)\s*=\s*([^\|]+?)(?=\s*\||$)", wide_eq, text
+            ).strip()
         else:
             text = self._format_equals(text)
             text = self._format_pipes(text)

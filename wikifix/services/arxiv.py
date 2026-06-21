@@ -4,14 +4,17 @@
 import xml.etree.ElementTree as ET
 from typing import Any, cast
 
-from wikifix.logger import get_logger
 from wikifix.cache import ResponseCache
+from wikifix.logger import get_logger
 
 log = get_logger()
 
 
 class ArxivMixin:
-    """arXiv API methods. Requires self._session, _rate_limit, _cached_get/set, clean_arxiv."""
+    """arXiv API methods.
+
+    Requires self._session, _rate_limit, _cached_get/set, clean_arxiv.
+    """
 
     def fetch_arxiv(self, arxiv_id: str) -> dict[str, Any] | None:
         arxiv_id = self.clean_arxiv(arxiv_id)

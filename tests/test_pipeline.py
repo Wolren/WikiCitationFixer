@@ -1,5 +1,3 @@
-from unittest.mock import patch
-
 from wikifix.config import Mode
 from wikifix.modules.cleanup import CleanupModule
 from wikifix.modules.dates import DateModule
@@ -390,7 +388,7 @@ class TestPipelineRefNames:
 
     def test_renames_global_single_quote(self):
         pipeline = self._make_pipeline()
-        text = "<ref name='Smith'>{{cite journal |last=Smith |year=2024 |title=Test}}</ref>"
+        text = "<ref name='Smith'>{{cite journal |last=Smith |year=2024 |title=Test}}</ref>"  # noqa: E501
         result = pipeline._add_ref_name(
             text,
             text.index("{{cite"),
@@ -573,7 +571,7 @@ class TestPipelineSequence:
         inp = tmp_path / "in.txt"
         out = tmp_path / "out.txt"
         inp.write_text(
-            "<ref name='old_name'>{{cite journal |last=Smith |year=2024 |title=Test}}</ref>",
+            "<ref name='old_name'>{{cite journal |last=Smith |year=2024 |title=Test}}</ref>",  # noqa: E501
             encoding="utf-8",
         )
         pipeline = CitationPipeline(modules=[], ref_names=True)
@@ -586,7 +584,7 @@ class TestPipelineSequence:
         inp = tmp_path / "in.txt"
         out = tmp_path / "out.txt"
         inp.write_text(
-            '<ref name="Smith">{{cite journal |last=Smith |year=2024 |title=Test}}</ref>',
+            '<ref name="Smith">{{cite journal |last=Smith |year=2024 |title=Test}}</ref>',  # noqa: E501
             encoding="utf-8",
         )
         pipeline = CitationPipeline(modules=[], ref_names=True)
@@ -620,7 +618,8 @@ class TestPipelineSequence:
         inp = tmp_path / "in.txt"
         out = tmp_path / "out.txt"
         inp.write_text(
-            "{{cite journal |pmid=12345678 |title=First}}{{cite journal |pmid=12345678 |title=Second}}",
+            "{{cite journal |pmid=12345678 |title=First}}"  # noqa: E501
+            "{{cite journal |pmid=12345678 |title=Second}}",
             encoding="utf-8",
         )
         pipeline = CitationPipeline(modules=[])

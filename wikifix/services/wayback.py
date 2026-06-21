@@ -1,16 +1,19 @@
 # mypy: disable-error-code="attr-defined"
 """Wayback Machine API mixin: check and save URL snapshots."""
 
-from typing import Any, cast
+from typing import cast
 
-from wikifix.logger import get_logger
 from wikifix.cache import ResponseCache
+from wikifix.logger import get_logger
 
 log = get_logger()
 
 
 class WaybackMixin:
-    """Wayback Machine methods. Requires self._session, _rate_limit, _cached_get/set, clean_url."""
+    """Wayback Machine methods.
+
+    Requires self._session, _rate_limit, _cached_get/set, clean_url.
+    """
 
     def check_wayback(self, url: str) -> tuple[str, str] | None:
         url = self.clean_url(url)

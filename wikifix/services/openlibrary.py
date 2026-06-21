@@ -4,14 +4,17 @@
 import time
 from typing import Any, cast
 
-from wikifix.logger import get_logger
 from wikifix.cache import ResponseCache
+from wikifix.logger import get_logger
 
 log = get_logger()
 
 
 class OpenLibraryMixin:
-    """Open Library API methods. Requires self._session, _rate_limit, _cached_get/set, clean_isbn."""
+    """Open Library API methods.
+
+    Requires self._session, _rate_limit, _cached_get/set, clean_isbn.
+    """
 
     def fetch_openlibrary(self, isbn: str) -> dict[str, Any] | None:
         isbn = self.clean_isbn(isbn)

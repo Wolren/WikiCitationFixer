@@ -1,8 +1,5 @@
 from unittest.mock import patch
 
-import pytest
-import requests_mock
-
 from wikifix.config import ApiConfig, Mode
 from wikifix.modules.archive import ArchiveModule
 from wikifix.services import ApiClient
@@ -88,7 +85,10 @@ class TestArchiveModule:
 
     def test_wayback_timestamp_mismatch(self):
         mod = ArchiveModule()
-        body = " | archive-url = https://web.archive.org/web/20240101000000/https://example.com | archive-date = 2023-01-01 | url = https://example.com"
+        body = (
+            " | archive-url = https://web.archive.org/web/20240101000000/https://example.com"
+            " | archive-date = 2023-01-01 | url = https://example.com"
+        )
         result = mod.process(body, _make_context({"template_type": "cite web"}))
         assert result.changes.get("archive-date-mismatch") is True
 
@@ -173,7 +173,10 @@ class TestArchiveModule:
         mod = ArchiveModule()
         cfg = ApiConfig(cache_dir=str(tmp_path / "arch5"))
         api = ApiClient(cfg)
-        body = " | url = https://example.com | archive-url = https://old.example | archive-date = 2020-01-01 | url-status = dead"
+        body = (
+            " | url = https://example.com | archive-url = https://old.example"
+            " | archive-date = 2020-01-01 | url-status = dead"
+        )
         with (
             patch.object(
                 api,
