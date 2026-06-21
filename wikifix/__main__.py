@@ -51,6 +51,208 @@ MODULE_REGISTRY = {
 }
 
 
+def _add_pipeline_group(p: argparse.ArgumentParser) -> None:
+    """Pipeline control arguments."""
+    g = p.add_argument_group("Pipeline Control")
+    g.add_argument(
+        "--enrich",
+        action="store_true",
+        help="Full enrichment: sort + cleanup + dedup + refresh authors",
+    )
+    g.add_argument(
+        "--sort",
+        action="store_true",
+        help="Reorder parameters to Wikipedia standard order (adds sort module)",
+    )
+    g.add_argument(
+        "--cleanup",
+        action="store_true",
+        help="Fix CS1/CS2 maintenance issues (adds cleanup module)",
+    )
+    g.add_argument(
+        "--dedup",
+        action="store_true",
+        help="Detect duplicate citations (adds dedup module)",
+    )
+    g.add_argument(
+        "--sfn",
+        action="store_true",
+        help="Convert inline <ref>{{cite...}}</ref> to {{sfn}} short-footnotes",
+    )
+    g.add_argument(
+        "--modules",
+        "-m",
+        default="expand,authors,dates,ids,spacing,archive",
+        help="Comma-separated list of modules to run (default: all)",
+    )
+    g.add_argument(
+        "--bare",
+        action="store_true",
+        help="Start with no default modules; add each explicitly",
+    )
+    g.add_argument(
+        "--list-modules",
+        action="store_true",
+        help="List available modules and exit",
+    )
+    for name in MODULE_REGISTRY:
+        g.add_argument(
+            f"--no-{name}",
+            action="store_true",
+            dest=f"no_{name.replace('-', '_')}",
+            help=f"Exclude {name} module from the pipeline",
+        )
+
+
+def _add_author_group(p: argparse.ArgumentParser) -> None:
+    """Author and style arguments."""
+    g = p.add_argument_group("Author & Style")
+    g.add_argument(
+        "--author-style",
+        choices=["normal", "vancouver"],
+        default="normal",
+        help='Author output style: "normal" (last/first) or "vancouver" (vauthors)',
+    )
+    g.add_argument(
+        "--refresh-authors",
+        action="store_true",
+        help="Fetch full author names from CrossRef/PubMed (requires DOI)",
+    )
+    g.add_argument(
+        "--max-authors",
+        type=int,
+        default=6,
+        help="Maximum authors (0 = unlimited, default: 6)",
+    )
+    g.add_argument(
+        "--spacing-style",
+        choices=["standard", "compact", "wide"],
+        default="standard",
+        help="Spacing format: 'standard' (| param = value) or 'compact' (|param=value)",
+    )
+
+
+def _add_id_group(p: argparse.ArgumentParser) -> None:
+    """ID enrichment arguments."""
+    g = p.add_argument_group("ID Enrichment")
+    g.add_argument(
+        "--ids",
+        default="issn,pmid,pmc,s2cid,qid",
+        help="Comma-separated IDs to fetch (default: issn,pmid,pmc,s2cid,qid)",
+    )
+    g.add_argument(
+        "--strip-issn",
+        action="store_true",
+        help="Remove ISSN when DOI is present (redundant identifier)",
+    )
+
+
+def _add_archive_group(p: argparse.ArgumentParser) -> None:
+    """Archive arguments."""
+    g = p.add_argument_group("Archive")
+    g.add_argument(
+        "--force-archive",
+        action="store_true",
+        help="Archive all citation types (not just cite web/news)",
+    )
+    g.add_argument(
+        "--create-archive",
+        action="store_true",
+        help="Submit unarchived URLs to Wayback Machine to create new snapshots",
+    )
+
+
+def _add_mode_group(p: argparse.ArgumentParser) -> None:
+    """Mode and behavior arguments."""
+    g = p.add_argument_group("Mode")
+    g.add_argument(
+        "--force",
+        "-f",
+        action="store_true",
+        help="Force-refresh: re-fetch metadata and all identifiers",
+    )
+    g.add_argument(
+        "--ref-names",
+        action="store_true",
+        help="Auto-generate ref names from first author surname + year",
+    )
+
+
+def _add_io_group(p: argparse.ArgumentParser) -> None:
+    """I/O arguments."""
+    g = p.add_argument_group("Input / Output")
+    g.add_argument(
+        "--input",
+        "-i",
+        default="from.txt",
+        help="Input wikitext file (default: from.txt)",
+    )
+    g.add_argument(
+        "--output",
+        "-o",
+        default="to.txt",
+        help="Output file (default: to.txt)",
+    )
+    g.add_argument(
+        "--diff",
+        action="store_true",
+        help="Print a unified diff of all changes made to the input",
+    )
+
+
+def _add_cache_group(p: argparse.ArgumentParser) -> None:
+    """Caching arguments."""
+    g = p.add_argument_group("Caching")
+    g.add_argument(
+        "--cache-dir",
+        default=None,
+        help="Directory for API response cache",
+    )
+    g.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Disable API response caching",
+    )
+    g.add_argument(
+        "--clear-cache",
+        action="store_true",
+        help="Wipe the API response disk cache and exit",
+    )
+
+
+def _add_misc_group(p: argparse.ArgumentParser) -> None:
+    """Miscellaneous arguments."""
+    g = p.add_argument_group("Miscellaneous")
+    g.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable verbose (debug) logging output",
+    )
+    g.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress all logging output except errors",
+    )
+    g.add_argument(
+        "--workers",
+        "-w",
+        type=int,
+        default=None,
+        help="Number of parallel workers for citation processing (default: 4)",
+    )
+    g.add_argument(
+        "--env",
+        "-e",
+        default=None,
+        help="Path to .env file with API keys for higher rate limits",
+    )
+    g.add_argument(
+        "--version",
+        action="store_true",
+        help="Show version and exit",
+    )
+
+
 def build_argparser() -> argparse.ArgumentParser:
     """Build and populate the CLI argument parser."""
     p = argparse.ArgumentParser(
@@ -71,169 +273,14 @@ def build_argparser() -> argparse.ArgumentParser:
             "  python -m wikifix --list-modules\n"
         ),
     )
-    p.add_argument(
-        "--enrich",
-        action="store_true",
-        help="Full enrichment: sort + cleanup + dedup + refresh authors",
-    )
-    p.add_argument(
-        "--sort",
-        action="store_true",
-        help="Reorder parameters to Wikipedia standard order (adds sort module)",
-    )
-    p.add_argument(
-        "--cleanup",
-        action="store_true",
-        help="Fix CS1/CS2 maintenance issues (adds cleanup module)",
-    )
-    p.add_argument(
-        "--dedup",
-        action="store_true",
-        help="Detect duplicate citations (adds dedup module)",
-    )
-    p.add_argument(
-        "--sfn",
-        action="store_true",
-        help="Convert inline <ref>{{cite...}}</ref> to {{sfn}} short-footnotes",
-    )
-    p.add_argument(
-        "--modules",
-        "-m",
-        default="expand,authors,dates,ids,spacing,archive",
-        help="Comma-separated list of modules to run (default: all)",
-    )
-    p.add_argument(
-        "--author-style",
-        choices=["normal", "vancouver"],
-        default="normal",
-        help='Author output style: "normal" (last/first) or "vancouver" (vauthors)',
-    )
-    p.add_argument(
-        "--ids",
-        default="issn,pmid,pmc,s2cid,qid",
-        help="Comma-separated IDs to fetch (default: issn,pmid,pmc,s2cid,qid)",
-    )
-    p.add_argument(
-        "--refresh-authors",
-        action="store_true",
-        help="Fetch full author names from CrossRef/PubMed (requires DOI)",
-    )
-    p.add_argument(
-        "--strip-issn",
-        action="store_true",
-        help="Remove ISSN when DOI is present (redundant identifier)",
-    )
-    p.add_argument(
-        "--spacing-style",
-        choices=["standard", "compact", "wide"],
-        default="standard",
-        help="Spacing format: 'standard' (| param = value) or 'compact' (|param=value)",
-    )
-    p.add_argument(
-        "--max-authors",
-        type=int,
-        default=6,
-        help="Maximum authors (0 = unlimited, default: 6)",
-    )
-    p.add_argument(
-        "--force",
-        "-f",
-        action="store_true",
-        help="Force-refresh: re-fetch metadata and all identifiers",
-    )
-    p.add_argument(
-        "--force-archive",
-        action="store_true",
-        help="Archive all citation types (not just cite web/news)",
-    )
-    p.add_argument(
-        "--create-archive",
-        action="store_true",
-        help="Submit unarchived URLs to Wayback Machine to create new snapshots",
-    )
-    p.add_argument(
-        "--input",
-        "-i",
-        default="from.txt",
-        help="Input wikitext file (default: from.txt)",
-    )
-    p.add_argument(
-        "--output",
-        "-o",
-        default="to.txt",
-        help="Output file (default: to.txt)",
-    )
-    p.add_argument(
-        "--list-modules",
-        action="store_true",
-        help="List available modules and exit",
-    )
-    p.add_argument(
-        "--ref-names",
-        action="store_true",
-        help="Auto-generate ref names from first author surname + year",
-    )
-    p.add_argument(
-        "--bare",
-        action="store_true",
-        help="Start with no default modules; add each explicitly",
-    )
-    p.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Enable verbose (debug) logging output",
-    )
-    p.add_argument(
-        "--quiet",
-        action="store_true",
-        help="Suppress all logging output except errors",
-    )
-    p.add_argument(
-        "--cache-dir",
-        default=None,
-        help="Directory for API response cache",
-    )
-    p.add_argument(
-        "--no-cache",
-        action="store_true",
-        help="Disable API response caching",
-    )
-    p.add_argument(
-        "--workers",
-        "-w",
-        type=int,
-        default=None,
-        help="Number of parallel workers for citation processing (default: 4)",
-    )
-    p.add_argument(
-        "--env",
-        "-e",
-        default=None,
-        help="Path to .env file with API keys for higher rate limits",
-    )
-    p.add_argument(
-        "--clear-cache",
-        action="store_true",
-        help="Wipe the API response disk cache and exit",
-    )
-    p.add_argument(
-        "--diff",
-        action="store_true",
-        help="Print a unified diff of all changes made to the input",
-    )
-    p.add_argument(
-        "--version",
-        action="store_true",
-        help="Show version and exit",
-    )
-    # Dynamic --no-MODULE flags for all registered modules
-    for name in MODULE_REGISTRY:
-        p.add_argument(
-            f"--no-{name}",
-            action="store_true",
-            dest=f"no_{name.replace('-', '_')}",
-            help=f"Exclude {name} module from the pipeline",
-        )
+    _add_pipeline_group(p)
+    _add_author_group(p)
+    _add_id_group(p)
+    _add_archive_group(p)
+    _add_mode_group(p)
+    _add_io_group(p)
+    _add_cache_group(p)
+    _add_misc_group(p)
     return p
 
 

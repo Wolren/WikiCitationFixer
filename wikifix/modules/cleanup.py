@@ -239,196 +239,255 @@ class CleanupModule(CitationModule):
 
     def process(self, text: str, context: dict[str, Any]) -> ProcessingResult:
         """Apply CS1/CS2 maintenance fixes to a citation body."""
-        changes = {}
-        new_template_type = None
+        changes: dict[str, bool] = {}
         template_type = context.get("template_type", "")
         t = template_type.lower()
-
-        # --- 0. Convert {{citation}} to specific template ---
         rename_params: dict[str, str] = {}
         drop_params: set[str] = set()
-        detected = None
-        if t == "citation":
-            detected = self._detect_citation_type(text)
-            if detected:
-                new_template_type = detected
-                changes["citation-type"] = True
-                # Set up parameter renames for the target type
-                if detected == "cite book":
-                    has_work = self._field_exists(text, "work")
-                    has_title = self._field_exists(text, "title")
-                    if has_work and has_title:
-                        rename_params["title"] = "chapter"
-                    if has_work:
-                        rename_params["work"] = "title"
-                    if self._field_exists(text, "place"):
-                        rename_params["place"] = "location"
-                    if has_work and self._field_exists(text, "url"):
-                        rename_params["url"] = "chapter-url"
-                elif detected == "cite journal":
-                    if self._field_exists(text, "work"):
-                        rename_params["work"] = "journal"
-                    if self._field_exists(text, "place"):
-                        rename_params["place"] = "location"
-                elif detected == "cite web":
-                    if self._field_exists(text, "work"):
-                        rename_params["work"] = "website"
-                    if self._field_exists(text, "place"):
-                        rename_params["place"] = "location"
-                elif detected in ("cite news", "cite magazine", "cite thesis"):
-                    if self._field_exists(text, "place"):
-                        rename_params["place"] = "location"
 
-        # --- 1. Missing or empty |title= ---
-        title_val = self._get_field(text, "title")
+        new_template_type, rename_params = self._detect_template_type(
+            text, t, changes, rename_params
+        )
+        text = self._fix_title_issues(text, changes)
+        self._flag_location_no_publisher(text, t, changes)
+        text = self._fix_work_with_isbn(text, changes)
+        text = self._fix_periodical_conflicts(text, t, changes)
+        text = self._fix_url_status(text, changes)
+        text = self._fix_page_pages_conflict(text, changes)
+        text = self._fix_deprecated_params(text, changes)
+        text = self._fix_extra_text_values(text, changes)
+        text = self._fix_work_journal_dedup(text, t, changes)
+        text = self._fix_year_date_conflict(text, changes)
+        text = self._fix_orphan_params(text, changes)
+        text = self._fix_empty_params(text, changes)
+        rename_params = self._fix_typo_params(text, changes, rename_params)
+        self._flag_external_links(text, changes)
+        text = self._fix_isbn_param(text, changes)
+        text = self._fix_nbsp_values(text, changes)
+        text = self._fix_none_values(text, changes)
+        self._flag_missing_essentials(text, t, changes)
+
+        return ProcessingResult(
+            text=text,
+            changes=changes,
+            new_template_type=new_template_type,
+            rename_params=rename_params,
+            drop_params=drop_params,
+        )
+
+    @staticmethod
+    def _detect_template_type(
+        text: str, t: str, changes: dict[str, bool], rename_params: dict[str, str]
+    ) -> tuple[str | None, dict[str, str]]:
+        """Convert {{citation}} to a specific template type."""
+        if t != "citation":
+            return None, rename_params
+        detected = CleanupModule._detect_citation_type(text)
+        if not detected:
+            return None, rename_params
+        changes["citation-type"] = True
+        if detected == "cite book":
+            has_work = CleanupModule._field_exists(text, "work")
+            has_title = CleanupModule._field_exists(text, "title")
+            if has_work and has_title:
+                rename_params["title"] = "chapter"
+            if has_work:
+                rename_params["work"] = "title"
+            if CleanupModule._field_exists(text, "place"):
+                rename_params["place"] = "location"
+            if has_work and CleanupModule._field_exists(text, "url"):
+                rename_params["url"] = "chapter-url"
+        elif detected == "cite journal":
+            if CleanupModule._field_exists(text, "work"):
+                rename_params["work"] = "journal"
+            if CleanupModule._field_exists(text, "place"):
+                rename_params["place"] = "location"
+        elif detected == "cite web":
+            if CleanupModule._field_exists(text, "work"):
+                rename_params["work"] = "website"
+            if CleanupModule._field_exists(text, "place"):
+                rename_params["place"] = "location"
+        elif detected in ("cite news", "cite magazine", "cite thesis"):
+            if CleanupModule._field_exists(text, "place"):
+                rename_params["place"] = "location"
+        return detected, rename_params
+
+    @staticmethod
+    def _fix_title_issues(text: str, changes: dict[str, bool]) -> str:
+        """Fix missing or placeholder titles."""
+        title_val = CleanupModule._get_field(text, "title")
         if title_val is not None and not title_val.strip():
-            text = self._remove_field(text, "title")
+            text = CleanupModule._remove_field(text, "title")
             changes["empty-title"] = True
         elif title_val is not None and _ARCHIVED_COPY_PATTERNS.match(title_val.strip()):
             changes["placeholder-title"] = True
+        return text
 
-        # --- 2. |location= without |publisher= in books ---
+    @staticmethod
+    def _flag_location_no_publisher(
+        text: str, t: str, changes: dict[str, bool]
+    ) -> None:
+        """Flag location without publisher in books."""
         if t.startswith("cite book") or t == "citation":
-            loc = self._get_field(text, "location")
-            pub = self._get_field(text, "publisher")
+            loc = CleanupModule._get_field(text, "location")
+            pub = CleanupModule._get_field(text, "publisher")
             if loc is not None and pub is None:
                 changes["location-no-publisher"] = True
 
-        # --- 3. |work=/|journal= with |isbn= (books don't use periodical params) ---
-        if self._field_exists(text, "isbn"):
-            for field in ("work", "journal", "website", "newspaper", "magazine"):
-                if self._field_exists(text, field):
-                    # Don't remove if citation→cite book will rename work→title
-                    if (
-                        field == "work"
-                        and detected == "cite book"
-                        and "work" in rename_params
-                    ):
-                        continue
-                    text = self._remove_field(text, field)
-                    changes["work-with-isbn"] = True
+    @staticmethod
+    def _fix_work_with_isbn(text: str, changes: dict[str, bool]) -> str:
+        """Remove periodical params when ISBN is present."""
+        if not CleanupModule._field_exists(text, "isbn"):
+            return text
+        for field in ("work", "journal", "website", "newspaper", "magazine"):
+            if CleanupModule._field_exists(text, field):
+                text = CleanupModule._remove_field(text, field)
+                changes["work-with-isbn"] = True
+        return text
 
-        # --- 4. Periodical conflicts ---
+    @staticmethod
+    def _fix_periodical_conflicts(text: str, t: str, changes: dict[str, bool]) -> str:
+        """Fix cite web/journal conflicts."""
         if t.startswith("cite web") or t.startswith("cite news"):
-            if self._field_exists(text, "journal"):
-                text = self._remove_field(text, "journal")
+            if CleanupModule._field_exists(text, "journal"):
+                text = CleanupModule._remove_field(text, "journal")
                 changes["periodical-conflict"] = True
-            if t.startswith("cite web") and self._field_exists(text, "newspaper"):
-                text = self._remove_field(text, "newspaper")
-                changes["periodical-conflict"] = True
-        if t.startswith("cite journal"):
-            if self._field_exists(text, "work"):
-                text = self._remove_field(text, "work")
-                changes["periodical-conflict"] = True
-
-        # --- 5. |url-status= validation ---
-        status_val = self._get_field(text, "url-status")
-        if status_val is not None and status_val.lower() not in _VALID_URL_STATUS:
-            text = self._remove_field(text, "url-status")
-            changes["invalid-url-status"] = True
-
-        # --- 6. Both |page= and |pages= ---
-        if self._field_exists(text, "page") and self._field_exists(text, "pages"):
-            text = self._remove_field(text, "pages")
-            changes["page-pages-conflict"] = True
-
-        # --- 7. Deprecated parameters ---
-        for depr in _DEPRECATED:
-            if self._field_exists(text, depr):
-                text = self._remove_field(text, depr)
-                changes["deprecated-param"] = True
-
-        # --- 8. Extra text in |volume=, |issue=, |page=, |edition= ---
-        vol = self._get_field(text, "volume")
-        if vol:
-            cleaned = self._strip_extra_text(vol, "volume")
-            if cleaned != vol:
-                text = self._set_field(text, "volume", cleaned)
-                changes["extra-text"] = True
-        iss = self._get_field(text, "issue")
-        if iss:
-            cleaned = self._strip_extra_text(iss, "issue")
-            if cleaned != iss:
-                text = self._set_field(text, "issue", cleaned)
-                changes["extra-text"] = True
-        num = self._get_field(text, "number")
-        if num:
-            cleaned = self._strip_extra_text(num, "issue")
-            if cleaned != num:
-                text = self._set_field(text, "number", cleaned)
-                changes["extra-text"] = True
-        ed = self._get_field(text, "edition")
-        if ed:
-            cleaned = self._strip_extra_text(ed, "edition")
-            if cleaned != ed:
-                text = self._set_field(text, "edition", cleaned)
-                changes["extra-text"] = True
-
-        # --- 9. work/journal dedup: {{citation}} uses |work=, not |journal= ---
-        if t == "citation":
-            work_val = self._get_field(text, "work")
-            journal_val = self._get_field(text, "journal")
-            if (
-                work_val is not None
-                and journal_val is not None
-                and work_val == journal_val
+            if t.startswith("cite web") and CleanupModule._field_exists(
+                text, "newspaper"
             ):
-                text = self._remove_field(text, "journal")
-                changes["work-journal-dedup"] = True
+                text = CleanupModule._remove_field(text, "newspaper")
+                changes["periodical-conflict"] = True
+        if t.startswith("cite journal") and CleanupModule._field_exists(text, "work"):
+            text = CleanupModule._remove_field(text, "work")
+            changes["periodical-conflict"] = True
+        return text
 
-        # --- 10. year/date conflict: |date= is preferred, remove |year= ---
-        date_val = self._get_field(text, "date")
-        year_val = self._get_field(text, "year")
-        if date_val is not None and year_val is not None:
-            text = self._remove_field(text, "year")
+    @staticmethod
+    def _fix_url_status(text: str, changes: dict[str, bool]) -> str:
+        """Remove invalid url-status values."""
+        status_val = CleanupModule._get_field(text, "url-status")
+        if status_val is not None and status_val.lower() not in _VALID_URL_STATUS:
+            text = CleanupModule._remove_field(text, "url-status")
+            changes["invalid-url-status"] = True
+        return text
+
+    @staticmethod
+    def _fix_page_pages_conflict(text: str, changes: dict[str, bool]) -> str:
+        """Remove |pages= when |page= is also present."""
+        if CleanupModule._field_exists(text, "page") and CleanupModule._field_exists(
+            text, "pages"
+        ):
+            text = CleanupModule._remove_field(text, "pages")
+            changes["page-pages-conflict"] = True
+        return text
+
+    @staticmethod
+    def _fix_deprecated_params(text: str, changes: dict[str, bool]) -> str:
+        """Remove deprecated parameters."""
+        for depr in _DEPRECATED:
+            if CleanupModule._field_exists(text, depr):
+                text = CleanupModule._remove_field(text, depr)
+                changes["deprecated-param"] = True
+        return text
+
+    @staticmethod
+    def _fix_extra_text_values(text: str, changes: dict[str, bool]) -> str:
+        """Strip extra text from volume, issue, page, edition."""
+        for field in ("volume", "issue", "number", "edition"):
+            val = CleanupModule._get_field(text, field)
+            if val:
+                kind = "issue" if field == "number" else field
+                cleaned = CleanupModule._strip_extra_text(val, kind)
+                if cleaned != val:
+                    text = CleanupModule._set_field(text, field, cleaned)
+                    changes["extra-text"] = True
+        return text
+
+    @staticmethod
+    def _fix_work_journal_dedup(text: str, t: str, changes: dict[str, bool]) -> str:
+        """Remove duplicate |journal= when |work= is the same value."""
+        if t != "citation":
+            return text
+        work_val = CleanupModule._get_field(text, "work")
+        journal_val = CleanupModule._get_field(text, "journal")
+        if work_val is not None and journal_val is not None and work_val == journal_val:
+            text = CleanupModule._remove_field(text, "journal")
+            changes["work-journal-dedup"] = True
+        return text
+
+    @staticmethod
+    def _fix_year_date_conflict(text: str, changes: dict[str, bool]) -> str:
+        """Remove |year= when |date= is present."""
+        if (
+            CleanupModule._get_field(text, "date") is not None
+            and CleanupModule._get_field(text, "year") is not None
+        ):
+            text = CleanupModule._remove_field(text, "year")
             changes["year-date-conflict"] = True
+        return text
 
-        # --- 11. Orphaned |access-date= without |url= ---
-        if self._field_exists(text, "access-date") and not self._field_exists(
-            text, "url"
-        ):
-            text = self._remove_field(text, "access-date")
+    @staticmethod
+    def _fix_orphan_params(text: str, changes: dict[str, bool]) -> str:
+        """Remove access-date/doi-broken-date without their parent param."""
+        if CleanupModule._field_exists(
+            text, "access-date"
+        ) and not CleanupModule._field_exists(text, "url"):
+            text = CleanupModule._remove_field(text, "access-date")
             changes["orphan-access-date"] = True
-
-        # --- 12. Orphaned |doi-broken-date= without |doi= ---
-        if self._field_exists(text, "doi-broken-date") and not self._field_exists(
-            text, "doi"
-        ):
-            text = self._remove_field(text, "doi-broken-date")
+        if CleanupModule._field_exists(
+            text, "doi-broken-date"
+        ) and not CleanupModule._field_exists(text, "doi"):
+            text = CleanupModule._remove_field(text, "doi-broken-date")
             changes["orphan-doi-broken-date"] = True
+        return text
 
-        # --- 13. Empty parameter values ---
+    @staticmethod
+    def _fix_empty_params(text: str, changes: dict[str, bool]) -> str:
+        """Remove parameters with empty values."""
         for m in re.finditer(r"\|\s*([^=|}]+?)\s*=\s*(?:\||\}\})", text):
             param = m.group(1).strip().lower()
             if param:
-                text = self._remove_field(text, param)
+                text = CleanupModule._remove_field(text, param)
                 changes["empty-param"] = True
+        return text
 
-        # --- 14. Parameter name typo correction ---
+    @staticmethod
+    def _fix_typo_params(
+        text: str, changes: dict[str, bool], rename_params: dict[str, str]
+    ) -> dict[str, str]:
+        """Fix common parameter name typos."""
         for typo, correct in _TYPO_MAP.items():
-            if typo != correct and self._field_exists(text, typo):
+            if typo != correct and CleanupModule._field_exists(text, typo):
                 rename_params[typo] = correct
                 changes["typo-param"] = True
+        return rename_params
 
-        # --- 15. External links in text parameter values ---
+    @staticmethod
+    def _flag_external_links(text: str, changes: dict[str, bool]) -> None:
+        """Flag external URLs in text parameters."""
         for param in _TEXT_PARAMS:
-            val = self._get_field(text, param)
+            val = CleanupModule._get_field(text, param)
             if val and re.search(r"https?://", val, re.IGNORECASE):
                 changes["external-link"] = True
-                # Only flag, don't auto-remove (user should fix)
                 break
 
-        # --- 16. ISBN validation + ISBN-10 → ISBN-13 conversion ---
-        isbn_val = self._get_field(text, "isbn")
-        if isbn_val:
-            fixed = self._fix_isbn(isbn_val)
-            if fixed is None:
-                changes["invalid-isbn"] = True
-            elif fixed != "".join(c for c in isbn_val if c not in "- "):
-                text = self._set_field(text, "isbn", fixed)
-                changes["isbn-normalized"] = True
+    @staticmethod
+    def _fix_isbn_param(text: str, changes: dict[str, bool]) -> str:
+        """Validate and normalize ISBN, convert ISBN-10 to ISBN-13."""
+        isbn_val = CleanupModule._get_field(text, "isbn")
+        if not isbn_val:
+            return text
+        fixed = CleanupModule._fix_isbn(isbn_val)
+        if fixed is None:
+            changes["invalid-isbn"] = True
+        elif fixed != "".join(c for c in isbn_val if c not in "- "):
+            text = CleanupModule._set_field(text, "isbn", fixed)
+            changes["isbn-normalized"] = True
+        return text
 
-        # --- 17. No-break space (\u00A0) in parameter values ---
+    @staticmethod
+    def _fix_nbsp_values(text: str, changes: dict[str, bool]) -> str:
+        """Replace no-break spaces (\\u00A0) with regular spaces."""
         for m in re.finditer(r"\|\s*([^=]+?)\s*=\s*([^|]+)", text):
             param_name = m.group(1).strip().lower()
             val = m.group(2).strip()
@@ -439,34 +498,34 @@ class CleanupModule(CitationModule):
                 )
                 text = re.sub(pattern, f"| {param_name} = {fixed_val}", text, count=1)
                 changes["nbsp-fix"] = True
+        return text
 
-        # --- 18. Literal "None" value (case-insensitive) ---
+    @staticmethod
+    def _fix_none_values(text: str, changes: dict[str, bool]) -> str:
+        """Remove parameters with literal 'None' values."""
         for m in re.finditer(
             r"\|\s*([^=]+?)\s*=\s*(None)\s*(?=\||\}\})", text, re.IGNORECASE
         ):
             param = m.group(1).strip().lower()
-            text = self._remove_field(text, param)
+            text = CleanupModule._remove_field(text, param)
             changes["none-value"] = True
+        return text
 
-        # --- 19. Missing essential params warning ---
-        if not self._field_exists(text, "title"):
+    @staticmethod
+    def _flag_missing_essentials(text: str, t: str, changes: dict[str, bool]) -> None:
+        """Flag missing essential parameters."""
+        if not CleanupModule._field_exists(text, "title"):
             changes["missing-title"] = True
-        if not self._field_exists(text, "date") and not self._field_exists(
-            text, "year"
-        ):
+        if not CleanupModule._field_exists(
+            text, "date"
+        ) and not CleanupModule._field_exists(text, "year"):
             changes["missing-date"] = True
-        if t.startswith("cite web") and not self._field_exists(text, "url"):
+        if t.startswith("cite web") and not CleanupModule._field_exists(text, "url"):
             changes["missing-url"] = True
-        if t.startswith("cite book") and not self._field_exists(text, "publisher"):
+        if t.startswith("cite book") and not CleanupModule._field_exists(
+            text, "publisher"
+        ):
             changes["missing-publisher"] = True
-
-        return ProcessingResult(
-            text=text,
-            changes=changes,
-            new_template_type=new_template_type,
-            rename_params=rename_params,
-            drop_params=drop_params,
-        )
 
     @staticmethod
     def _set_field(text: str, field: str, new_value: str) -> str:

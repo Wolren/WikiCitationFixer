@@ -116,11 +116,15 @@ class TestExpandHelpers:
     def test_container_field_fallback(self):
         assert ExpandModule._container_field("cite thesis") == "journal"
 
-    def test_expand_get_field_found(self):
-        assert ExpandModule._get_field(" | doi = 10.1000/xyz", "doi") == "10.1000/xyz"
+    def test_extract_field_found(self):
+        from wikifix.modules.expand import _extract_field
 
-    def test_expand_get_field_missing(self):
-        assert ExpandModule._get_field(" | title = Foo", "doi") is None
+        assert _extract_field(" | doi = 10.1000/xyz", "doi") == "10.1000/xyz"
+
+    def test_extract_field_missing(self):
+        from wikifix.modules.expand import _extract_field
+
+        assert _extract_field(" | title = Foo", "doi") is None
 
 
 class TestExpandModule:

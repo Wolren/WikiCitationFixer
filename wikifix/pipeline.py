@@ -394,6 +394,75 @@ class CitationPipeline:
         return body
 
     @staticmethod
+    def _find_existing_ref_name(
+        text: str, pos: int, existing: str | None = None
+    ) -> tuple[str | None, str | None]:
+        """Determine the existing ref tag and name at position *pos*."""
+        if existing:
+            return existing, f'<ref name="{existing}">'
+        prefix = text[:pos]
+        ref_m = re.search(r"<ref\s*([^>]*)>\s*$", prefix)
+        if not ref_m:
+            return None, None
+        attrs = ref_m.group(1).strip()
+        name_m = re.search(r'name\s*=\s*"([^"]*)"', attrs, re.IGNORECASE)
+        return (name_m.group(1) if name_m else None), ref_m.group(0)
+
+    @staticmethod
+    def _extract_first_author(body: str) -> str | None:
+        """Extract the first author's surname from a citation body."""
+        for pattern in [
+            r"\|\s*last\s*=\s*([^|]+)",
+            r"\|\s*last1\s*=\s*([^|]+)",
+            r"\|\s*vauthors\s*=\s*([^|,;]+)",
+        ]:
+            m = re.search(pattern, body)
+            if m:
+                raw = m.group(1).strip().rstrip(",").strip()
+                return raw.split()[0]
+        return None
+
+    @staticmethod
+    def _extract_ref_year(body: str) -> str | None:
+        """Extract the year from a citation body."""
+        for pattern in [r"\|\s*year\s*=\s*(\d{4})", r"\|\s*date\s*=\s*[^|]*?(\d{4})"]:
+            ym = re.search(pattern, body)
+            if ym:
+                return ym.group(1)
+        return None
+
+    @staticmethod
+    def _generate_fallback_ref_name(body: str, template_type: str) -> str | None:
+        """Generate a fallback ref name when no author+year is available."""
+        t = template_type.lower()
+        if t.startswith("cite web"):
+            for field in ("work", "website", "publisher"):
+                fm = re.search(rf"\|\s*{field}\s*=\s*([^|]+)", body)
+                if fm:
+                    name = CitationPipeline._first_word(fm.group(1).strip())
+                    if name:
+                        return name
+            um = re.search(r"\|\s*url\s*=\s*([^|]+)", body)
+            if um:
+                domain = urllib.parse.urlparse(um.group(1).strip()).netloc
+                domain = domain.removeprefix("www.").split(".")[0]
+                return domain.capitalize()
+        tm = re.search(r"\|\s*title\s*=\s*([^|]+)", body)
+        if tm:
+            return CitationPipeline._first_word(tm.group(1).strip())
+        return None
+
+    @staticmethod
+    def _unique_ref_name(ref_name: str, used_names: set[str]) -> str:
+        """Ensure *ref_name* is unique, appending -2, -3, ... if needed."""
+        if ref_name not in used_names:
+            return ref_name
+        suffix = 2
+        while f"{ref_name}-{suffix}" in used_names:
+            suffix += 1
+        return f"{ref_name}-{suffix}"
+
+    @staticmethod
     def _add_ref_name(
         text: str,
         pos: int,
@@ -410,95 +479,36 @@ class CitationPipeline:
         *used_names* tracks every name already assigned to prevent collisions.
         *existing* is the current ref name (or None to auto-detect from text).
         """
-        # Determine the ref tag content and existing name
-        ref_tag = f'<ref name="{existing}">' if existing else None
-        if ref_tag is None:
-            prefix = text[:pos]
-            ref_m = re.search(r"<ref\s*([^>]*)>\s*$", prefix)
-            if not ref_m:
-                return text
-            attrs = ref_m.group(1).strip()
-            name_m = re.search(r'name\s*=\s*"([^"]*)"', attrs, re.IGNORECASE)
-            existing = name_m.group(1) if name_m else None
-            ref_tag = ref_m.group(0)
-        existing_name = existing
-
-        # Extract first author surname
-        name = None
-        m = re.search(r"\|\s*last\s*=\s*([^|]+)", body)
-        if not m:
-            m = re.search(r"\|\s*last1\s*=\s*([^|]+)", body)
-        if not m:
-            m = re.search(r"\|\s*vauthors\s*=\s*([^|,;]+)", body)
-        if m:
-            raw = m.group(1).strip().rstrip(",").strip()
-            name = raw.split()[0]
-
-        # Extract year
-        year = None
-        ym = re.search(r"\|\s*year\s*=\s*(\d{4})", body)
-        if not ym:
-            ym = re.search(r"\|\s*date\s*=\s*[^|]*?(\d{4})", body)
-        if ym:
-            year = ym.group(1)
+        existing_name, ref_tag = CitationPipeline._find_existing_ref_name(
+            text, pos, existing
+        )
+        if not ref_tag:
+            return text
 
         # Treat auto-generated names (:0, :1, ...) as unnamed
         if existing_name is not None and not existing_name.startswith(":"):
-            if name and year and existing_name == name:
-                pass  # upgrade bare-surname name to include year
-            else:
-                return text  # already has a meaningful name
+            name = CitationPipeline._extract_first_author(body)
+            year = CitationPipeline._extract_ref_year(body)
+            if not (name and year and existing_name == name):
+                return text
+
+        name = CitationPipeline._extract_first_author(body)
+        year = CitationPipeline._extract_ref_year(body)
 
         if name and year:
-            ref_name = f"{name}{year}"
+            ref_name: str = f"{name}{year}"
         elif name:
             ref_name = name
-        elif template_type.lower().startswith("cite web"):
-            # For web citations without author, try work/website/publisher
-            ref_name = None
-            for field in ("work", "website", "publisher"):
-                fm = re.search(rf"\|\s*{field}\s*=\s*([^|]+)", body)
-                if fm:
-                    ref_name = CitationPipeline._first_word(fm.group(1).strip())
-                    if ref_name:
-                        break
-            if not ref_name:
-                # Fall back to domain from URL
-                um = re.search(r"\|\s*url\s*=\s*([^|]+)", body)
-                if um:
-                    domain = urllib.parse.urlparse(um.group(1).strip()).netloc
-                    domain = domain.removeprefix("www.").split(".")[0]
-                    ref_name = domain.capitalize()
-            if not ref_name:
-                # Last resort: title
-                tm = re.search(r"\|\s*title\s*=\s*([^|]+)", body)
-                if tm:
-                    ref_name = CitationPipeline._first_word(tm.group(1).strip())
-            if not ref_name:
-                return text
         else:
-            # Fallback: first non-stopword from title
-            tm = re.search(r"\|\s*title\s*=\s*([^|]+)", body)
-            if tm:
-                ref_name = CitationPipeline._first_word(tm.group(1).strip())
-                if not ref_name:
-                    return text
-            else:
+            fallback = CitationPipeline._generate_fallback_ref_name(body, template_type)
+            if not fallback:
                 return text
+            ref_name = fallback
 
-        if ref_name is None:
-            return text
-
-        # Wikipedia rejects ref names that are simple integers
         if ref_name.isdigit():
             ref_name = f"ref-{ref_name}"
 
-        # Deduplicate against all existing ref names in the text
-        if ref_name in used_names:
-            suffix = 2
-            while f"{ref_name}-{suffix}" in used_names:
-                suffix += 1
-            ref_name = f"{ref_name}-{suffix}"
+        ref_name = CitationPipeline._unique_ref_name(ref_name, used_names)
         used_names.add(ref_name)
 
         # Insert name into the <ref> tag
@@ -507,7 +517,6 @@ class CitationPipeline:
         else:
             text = text[: pos - len(ref_tag)] + f'<ref name="{ref_name}">' + text[pos:]
 
-        # Record rename for deferred global short-ref replacement
         if existing_name and existing_name != ref_name:
             renames[existing_name] = ref_name
 

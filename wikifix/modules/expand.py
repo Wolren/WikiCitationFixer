@@ -24,6 +24,12 @@ from wikifix.logger import get_logger
 log = get_logger()
 
 
+def _extract_field(text: str, field: str) -> str | None:
+    """Extract the value of a parameter from the citation body."""
+    m = re.search(rf"\|\s*{re.escape(field)}\s*=\s*([^|]+)", text)
+    return m.group(1).strip() if m else None
+
+
 FIELD_ALIASES = {
     "journal": ["journal", "website", "work", "newspaper", "magazine"],
     "publisher": ["publisher", "publication-place"],
@@ -157,6 +163,61 @@ class ExpandModule(CitationModule):
             return "magazine"
         return "journal"  # fallback
 
+    @staticmethod
+    def _apply_epmc_fields(
+        text: str,
+        epmc: dict[str, Any],
+        template_type: str,
+        force: bool = False,
+        journal_fallback: str | None = None,
+        extract_ids: bool = False,
+    ) -> str:
+        """Apply Europe PMC metadata fields to a citation body."""
+        if force or not _has_field(text, "title"):
+            title = epmc.get("title")
+            if title:
+                text = _add_field(text, "title", html.unescape(title), force=force)
+        j_field = ExpandModule._container_field(template_type)
+        if force or not _has_field(text, j_field):
+            j = epmc.get("journalTitle") or journal_fallback
+            if j and (
+                j_field != "journal" or ExpandModule._can_use_journal(template_type)
+            ):
+                text = _add_field(text, j_field, _clean_journal(j), force=force)
+        if not template_type.lower().startswith("cite book"):
+            if (force or not _has_field(text, "volume")) and epmc.get("volume"):
+                text = _add_field(text, "volume", str(epmc["volume"]), force=force)
+        if (force or not _has_field(text, "issue")) and epmc.get("issue"):
+            text = _add_field(text, "issue", str(epmc["issue"]), force=force)
+        if (
+            not _has_field(text, "page")
+            and not _has_field(text, "pages")
+            and not _has_field(text, "article-number")
+        ):
+            p = epmc.get("pageInfo")
+            if p:
+                text = _add_field(text, "pages", p, force=force)
+        if force or not _has_field(text, "date"):
+            d = epmc.get("firstPublicationDate") or epmc.get("pubYear")
+            if d:
+                text = _add_field(
+                    text, "date", _format_date_string(str(d)), force=force
+                )
+        if extract_ids:
+            if force or not _has_field(text, "pmid"):
+                pid = epmc.get("source") == "MED" and epmc.get("id")
+                if pid:
+                    text = _add_field(text, "pmid", str(pid), force=force)
+            if force or not _has_field(text, "pmc"):
+                pmcid = epmc.get("pmcid") or (
+                    epmc.get("id") if epmc.get("source") == "PMC" else None
+                )
+                if pmcid:
+                    text = _add_field(
+                        text, "pmc", str(pmcid).removeprefix("PMC"), force=force
+                    )
+        return text
+
     def _expand_from_doi(
         self, text: str, doi: str, api: Any, template_type: str, force: bool = False
     ) -> str:
@@ -191,9 +252,9 @@ class ExpandModule(CitationModule):
                     text = _add_field(text, "issue", str(issue), force=force)
 
             if _has_field(text, "page") and _has_field(text, "pages"):
-                pass  # both already present, don't touch
+                pass
             elif _has_field(text, "article-number"):
-                pass  # article-number already set, skip pages
+                pass
             elif force or not (_has_field(text, "page") or _has_field(text, "pages")):
                 pages = msg.get("page")
                 if pages:
@@ -222,52 +283,12 @@ class ExpandModule(CitationModule):
                             text, "publisher", _clean_publisher(pub), force=force
                         )
 
-        # Try Europe PMC as supplement
         epmc = api.fetch_europepmc(doi)
         if epmc:
-            if (force or not _has_field(text, "title")) and epmc.get("title"):
-                text = _add_field(
-                    text, "title", html.unescape(epmc["title"]), force=force
-                )
-            j_field = self._container_field(template_type)
-            if force or not _has_field(text, j_field):
-                j = epmc.get("journalTitle") or epmc.get("bookOrReportDetails", {}).get(
-                    "publisher"
-                )
-                if j and (j_field != "journal" or self._can_use_journal(template_type)):
-                    text = _add_field(text, j_field, _clean_journal(j), force=force)
-            if not template_type.lower().startswith("cite book"):
-                if (force or not _has_field(text, "volume")) and epmc.get("volume"):
-                    text = _add_field(text, "volume", str(epmc["volume"]), force=force)
-            if (force or not _has_field(text, "issue")) and epmc.get("issue"):
-                text = _add_field(text, "issue", str(epmc["issue"]), force=force)
-            if (
-                not _has_field(text, "page")
-                and not _has_field(text, "pages")
-                and not _has_field(text, "article-number")
-            ):
-                p = epmc.get("pageInfo")
-                if p:
-                    text = _add_field(text, "pages", p, force=force)
-            if force or not _has_field(text, "date"):
-                epmc_date = epmc.get("firstPublicationDate") or epmc.get("pubYear")
-                if epmc_date:
-                    text = _add_field(
-                        text, "date", _format_date_string(str(epmc_date)), force=force
-                    )
-            if force or not _has_field(text, "pmid"):
-                pid = epmc.get("source") == "MED" and epmc.get("id")
-                if pid:
-                    text = _add_field(text, "pmid", str(pid), force=force)
-            if force or not _has_field(text, "pmc"):
-                pmcid = epmc.get("pmcid") or (
-                    epmc.get("id") if epmc.get("source") == "PMC" else None
-                )
-                if pmcid:
-                    text = _add_field(
-                        text, "pmc", str(pmcid).removeprefix("PMC"), force=force
-                    )
-
+            journal_fallback = epmc.get("bookOrReportDetails", {}).get("publisher")
+            text = self._apply_epmc_fields(
+                text, epmc, template_type, force, journal_fallback, extract_ids=True
+            )
         return text
 
     def _expand_from_pmid(
@@ -275,34 +296,8 @@ class ExpandModule(CitationModule):
     ) -> str:
         """Fill fields from Europe PMC by PMID."""
         epmc = api.pmid_to_metadata_europepmc(pmid)
-        if not epmc:
-            return text
-        if (force or not _has_field(text, "title")) and epmc.get("title"):
-            text = _add_field(text, "title", html.unescape(epmc["title"]), force=force)
-        j_field = self._container_field(template_type)
-        if force or not _has_field(text, j_field):
-            j = epmc.get("journalTitle")
-            if j and (j_field != "journal" or self._can_use_journal(template_type)):
-                text = _add_field(text, j_field, _clean_journal(j), force=force)
-        if not template_type.lower().startswith("cite book"):
-            if (force or not _has_field(text, "volume")) and epmc.get("volume"):
-                text = _add_field(text, "volume", str(epmc["volume"]), force=force)
-        if (force or not _has_field(text, "issue")) and epmc.get("issue"):
-            text = _add_field(text, "issue", str(epmc["issue"]), force=force)
-        if (
-            not _has_field(text, "page")
-            and not _has_field(text, "pages")
-            and not _has_field(text, "article-number")
-        ):
-            p = epmc.get("pageInfo")
-            if p:
-                text = _add_field(text, "pages", p, force=force)
-        if force or not _has_field(text, "date"):
-            d = epmc.get("firstPublicationDate") or epmc.get("pubYear")
-            if d:
-                text = _add_field(
-                    text, "date", _format_date_string(str(d)), force=force
-                )
+        if epmc:
+            text = self._apply_epmc_fields(text, epmc, template_type, force)
         return text
 
     def _expand_from_arxiv(
@@ -425,7 +420,7 @@ class ExpandModule(CitationModule):
 
         # Title→DOI expansion: if no DOI was found and no expansion happened, try title
         if not doi and not pmid and not arxiv_id and not isbn:
-            title_val = context.get("title") or self._get_field(text, "title")
+            title_val = context.get("title") or _extract_field(text, "title")
             if title_val:
                 text = self._expand_from_title(text, title_val, api, template_type)
 
@@ -433,9 +428,3 @@ class ExpandModule(CitationModule):
         if changed:
             log.info("    + Expanded with metadata")
         return ProcessingResult(text=text, changes={"expand": changed})
-
-    @staticmethod
-    def _get_field(text: str, field: str) -> str | None:
-        """Extract the value of a parameter from the citation body."""
-        m = re.search(rf"\|\s*{re.escape(field)}\s*=\s*([^|]+)", text)
-        return m.group(1).strip() if m else None
