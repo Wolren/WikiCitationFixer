@@ -1,6 +1,11 @@
 # WikiCitationFixer
 
 [![CI](https://github.com/Wolren/WikiCitationFixer/actions/workflows/ci.yml/badge.svg)](https://github.com/Wolren/WikiCitationFixer/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://www.python.org)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Code style](https://img.shields.io/badge/code%20style-ruff-000000)](https://docs.astral.sh/ruff/)
+[![Last commit](https://img.shields.io/github/last-commit/Wolren/WikiCitationFixer)](https://github.com/Wolren/WikiCitationFixer/commits/master)
+[![Repo size](https://img.shields.io/github/repo-size/Wolren/WikiCitationFixer)](https://github.com/Wolren/WikiCitationFixer)
 
 Modular Wikipedia citation fixer for CS1/CS2 templates (cite journal, cite web, cite book, citation, etc.).
 
