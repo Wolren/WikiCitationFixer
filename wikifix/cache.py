@@ -25,13 +25,19 @@ class ResponseCache:
     length or special characters.
     """
 
-    def __init__(self, directory: str | Path, ttl: int = _WEEK_SECONDS):
+    def __init__(
+        self,
+        directory: str | Path,
+        ttl: int = _WEEK_SECONDS,
+        size_limit: int = 2**30,
+    ):
         """
         Args:
-            directory: Path to the cache directory (created if missing).
-            ttl:       Time-to-live in seconds (default 7 days).
+            directory:  Path to the cache directory (created if missing).
+            ttl:        Time-to-live in seconds (default 7 days).
+            size_limit: Maximum cache size in bytes (default 1 GiB).
         """
-        self._cache = _DiskCache(str(directory))
+        self._cache = _DiskCache(str(directory), size_limit=size_limit)
         self._ttl = ttl
 
     # ------------------------------------------------------------------

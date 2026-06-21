@@ -1,10 +1,10 @@
-# mypy: disable-error-code="attr-defined"
 """Semantic Scholar API mixin: DOI→S2CID."""
 
 from typing import cast
 
 from wikifix.cache import ResponseCache
 from wikifix.logger import get_logger
+from wikifix.services.base import _ApiClientCoreProtocol
 
 log = get_logger()
 
@@ -15,7 +15,7 @@ class SemanticScholarMixin:
     Requires self._session, _rate_limit, _cached_get/set, clean_doi.
     """
 
-    def doi_to_s2cid(self, doi: str) -> str | None:
+    def doi_to_s2cid(self: _ApiClientCoreProtocol, doi: str) -> str | None:
         doi = self.clean_doi(doi)
         cache_key = ResponseCache.make_key("semantic", "s2cid", doi)
         cached = self._cached_get(cache_key)

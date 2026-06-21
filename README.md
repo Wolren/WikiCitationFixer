@@ -7,6 +7,8 @@
 [![Last commit](https://img.shields.io/github/last-commit/Wolren/WikiCitationFixer)](https://github.com/Wolren/WikiCitationFixer/commits/master)
 [![Repo size](https://img.shields.io/github/repo-size/Wolren/WikiCitationFixer)](https://github.com/Wolren/WikiCitationFixer)
 
+> **Deprecation notice:** This Python project is no longer maintained. The preferred way to fix Wikipedia citations now is the [WikiCitationExtension](https://github.com/Wolren/WikiCitationExtension) browser extension, which covers all the same functionality in a more accessible format.
+
 Modular Wikipedia citation fixer for CS1/CS2 templates (cite journal, cite web, cite book, citation, etc.).
 
 ## Quick start

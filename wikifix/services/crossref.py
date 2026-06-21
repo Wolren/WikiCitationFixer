@@ -1,10 +1,10 @@
-# mypy: disable-error-code="attr-defined"
 """CrossRef API mixin: DOI metadata, ISSN, OA check, authors, title search."""
 
 from typing import Any, cast
 
 from wikifix.cache import ResponseCache
 from wikifix.logger import get_logger
+from wikifix.services.base import _ApiClientCoreProtocol
 
 log = get_logger()
 
@@ -15,7 +15,7 @@ class CrossRefMixin:
     Requires self._session, _rate_limit, _cached_get/set, clean_doi.
     """
 
-    def fetch_crossref(self, doi: str) -> dict[str, Any] | None:
+    def fetch_crossref(self: _ApiClientCoreProtocol, doi: str) -> dict[str, Any] | None:
         doi = self.clean_doi(doi)
         cache_key = ResponseCache.make_key("crossref", "work", doi)
         cached = self._cached_get(cache_key)
@@ -34,14 +34,14 @@ class CrossRefMixin:
             log.warning("  CrossRef fetch failed for DOI %s: %s", doi, e)
         return None
 
-    def doi_to_issn(self, doi: str) -> str | None:
+    def doi_to_issn(self: _ApiClientCoreProtocol, doi: str) -> str | None:
         msg = self.fetch_crossref(doi)
         if msg:
             issns = msg.get("ISSN", [])
             return issns[0] if issns else None
         return None
 
-    def doi_is_oa(self, doi: str) -> bool:
+    def doi_is_oa(self: _ApiClientCoreProtocol, doi: str) -> bool:
         msg = self.fetch_crossref(doi)
         if not msg:
             return False
@@ -51,14 +51,14 @@ class CrossRefMixin:
                 return True
         return False
 
-    def doi_to_authors(self, doi: str) -> list[tuple[str, str]]:
+    def doi_to_authors(self: _ApiClientCoreProtocol, doi: str) -> list[tuple[str, str]]:
         msg = self.fetch_crossref(doi)
         if msg:
             authors = msg.get("author", [])
             return [(a["family"], a.get("given", "")) for a in authors if "family" in a]
         return []
 
-    def doi_from_title(self, title: str) -> str | None:
+    def doi_from_title(self: _ApiClientCoreProtocol, title: str) -> str | None:
         cache_key = ResponseCache.make_key(
             "crossref", "title_search", title.strip().lower()
         )
@@ -69,7 +69,7 @@ class CrossRefMixin:
         try:
             resp = self._session.get(
                 "https://api.crossref.org/works",
-                params={"query.title": title, "rows": 1},
+                params={"query.title": title, "rows": "1"},
                 timeout=10,
             )
             if resp.ok:

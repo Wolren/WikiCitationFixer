@@ -1,4 +1,5 @@
 from wikifix.config import ApiConfig, Mode
+from wikifix.field_utils import get_field, has_field, remove_field, set_field
 from wikifix.modules.cleanup import CleanupModule
 from wikifix.services import ApiClient
 
@@ -27,24 +28,19 @@ def _make_context(overrides=None):
 
 class TestCleanupHelpers:
     def test_get_field_found(self):
-        mod = CleanupModule()
-        assert mod._get_field(" | doi = 10.1000/xyz", "doi") == "10.1000/xyz"
+        assert get_field(" | doi = 10.1000/xyz", "doi") == "10.1000/xyz"
 
     def test_get_field_missing(self):
-        mod = CleanupModule()
-        assert mod._get_field(" | title = Foo", "doi") is None
+        assert get_field(" | title = Foo", "doi") is None
 
     def test_field_exists_true(self):
-        mod = CleanupModule()
-        assert mod._field_exists(" | doi = 10.1000/xyz", "doi") is True
+        assert has_field(" | doi = 10.1000/xyz", "doi") is True
 
     def test_field_exists_false(self):
-        mod = CleanupModule()
-        assert mod._field_exists(" | title = Foo", "doi") is False
+        assert has_field(" | title = Foo", "doi") is False
 
     def test_remove_field(self):
-        mod = CleanupModule()
-        result = mod._remove_field(" | doi = 10.1000/xyz | title = Foo", "doi")
+        result = remove_field(" | doi = 10.1000/xyz | title = Foo", "doi")
         assert "doi" not in result
 
     def test_fix_isbn_10_valid(self):
@@ -109,13 +105,11 @@ class TestCleanupHelpers:
         assert mod._strip_extra_text("3rd ed.", "edition") == "3rd"
 
     def test_set_field_replaces_value(self):
-        mod = CleanupModule()
-        result = mod._set_field(" | volume = Vol. 10", "volume", "10")
+        result = set_field(" | volume = Vol. 10", "volume", "10")
         assert "| volume = 10" in result
 
     def test_set_field_not_found(self):
-        mod = CleanupModule()
-        result = mod._set_field(" | title = Foo", "volume", "10")
+        result = set_field(" | title = Foo", "volume", "10")
         assert result == " | title = Foo"
 
     def test_detect_citation_type_journal(self):

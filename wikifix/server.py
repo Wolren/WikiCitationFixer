@@ -20,12 +20,12 @@ try:
     from flask import Flask, jsonify, request
     from flask.typing import ResponseReturnValue
     from flask_cors import CORS
-except ImportError:
+except ImportError as e:
     msg = (
         "Flask and flask-cors are required for the server. "
         "Install with: pip install wikifix[server]"
     )
-    raise ImportError(msg) from None
+    raise ImportError(msg) from e
 
 app = Flask(__name__)
 CORS(app)
@@ -113,9 +113,21 @@ def health() -> ResponseReturnValue:
 
 
 def main() -> None:
-    host = os.environ.get("WIKIFIX_HOST", "0.0.0.0")
+    host = os.environ.get("WIKIFIX_HOST", "127.0.0.1")
     port = int(os.environ.get("WIKIFIX_PORT", "8000"))
     debug = os.environ.get("WIKIFIX_DEBUG", "").lower() in ("1", "true", "yes")
+    api_key = os.environ.get("WIKIFIX_API_KEY", "")
+
+    if api_key:
+
+        @app.before_request
+        def _check_auth() -> ResponseReturnValue | None:
+            from flask import abort as _abort
+
+            if request.headers.get("X-API-Key") != api_key:
+                return _abort(401)
+            return None
+
     app.run(host=host, port=port, debug=debug)
 
 

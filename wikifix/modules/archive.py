@@ -15,6 +15,7 @@ from typing import Any
 
 from wikifix.base import CitationModule
 from wikifix.config import Mode, ProcessingResult
+from wikifix.field_utils import get_field, remove_field
 from wikifix.logger import get_logger
 
 log = get_logger()
@@ -53,31 +54,31 @@ class ArchiveModule(CitationModule):
         changes = {}
 
         # --- Validate existing archive parameters ---
-        url_val = self._get_field(text, "url")
-        archive_url_val = self._get_field(text, "archive-url")
-        archive_date_val = self._get_field(text, "archive-date")
-        status_val = self._get_field(text, "url-status")
+        url_val = get_field(text, "url")
+        archive_url_val = get_field(text, "archive-url")
+        archive_date_val = get_field(text, "archive-date")
+        status_val = get_field(text, "url-status")
 
         # archive-url requires url
         if archive_url_val is not None and url_val is None:
-            text = self._remove_field(text, "archive-url")
-            text = self._remove_field(text, "archive-date")
-            text = self._remove_field(text, "url-status")
+            text = remove_field(text, "archive-url")
+            text = remove_field(text, "archive-date")
+            text = remove_field(text, "url-status")
             changes["archive-no-url"] = True
 
         # archive-date requires archive-url
         if archive_date_val is not None and archive_url_val is None:
-            text = self._remove_field(text, "archive-date")
+            text = remove_field(text, "archive-date")
             changes["archive-date-no-url"] = True
 
         # url-status requires archive-url (or url for bot: unknown)
         if status_val is not None and archive_url_val is None:
             if status_val.strip().lower() == "bot: unknown":
                 if url_val is None:
-                    text = self._remove_field(text, "url-status")
+                    text = remove_field(text, "url-status")
                     changes["orphan-url-status"] = True
             else:
-                text = self._remove_field(text, "url-status")
+                text = remove_field(text, "url-status")
                 changes["orphan-url-status"] = True
 
         # --- Detect deprecated archive services ---
@@ -162,14 +163,3 @@ class ArchiveModule(CitationModule):
         changes["archive"] = True
 
         return ProcessingResult(text=text, changes=changes)
-
-    @staticmethod
-    def _get_field(text: str, field: str) -> str | None:
-        """Extract the value of a parameter from the citation body."""
-        m = re.search(rf"\|\s*{re.escape(field)}\s*=\s*([^|]+)", text)
-        return m.group(1).strip() if m else None
-
-    @staticmethod
-    def _remove_field(text: str, field: str) -> str:
-        """Remove a parameter and its value from the citation body."""
-        return re.sub(rf"\|\s*{re.escape(field)}\s*=[^|]+", "", text, count=1)

@@ -1,10 +1,10 @@
-# mypy: disable-error-code="attr-defined"
 """DataCite API mixin: DOI→authors."""
 
 from typing import cast
 
 from wikifix.cache import ResponseCache
 from wikifix.logger import get_logger
+from wikifix.services.base import _ApiClientCoreProtocol
 
 log = get_logger()
 
@@ -15,7 +15,9 @@ class DataCiteMixin:
     Requires self._session, _rate_limit, _cached_get/set, clean_doi.
     """
 
-    def doi_to_authors_datacite(self, doi: str) -> list[tuple[str, str]]:
+    def doi_to_authors_datacite(
+        self: _ApiClientCoreProtocol, doi: str
+    ) -> list[tuple[str, str]]:
         doi = self.clean_doi(doi)
         cache_key = ResponseCache.make_key("datacite", "authors", doi)
         cached = self._cached_get(cache_key)

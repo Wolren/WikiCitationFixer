@@ -4,10 +4,11 @@ import os
 import re
 import threading
 import time
+import urllib.parse
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -20,6 +21,46 @@ from wikifix.logger import get_logger
 log = get_logger()
 
 _DOI_RE = re.compile(r"^10\.\d{4,}(?:\.\d+)*/[\w.\-:;()/]+$")
+
+# Set of private/reserved IP ranges that should not be probed externally.
+_PRIVATE_HOSTS = re.compile(
+    r"^(127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|"
+    r"0\.|169\.254\.|::1|fc00:|fe80:|localhost)",
+    re.IGNORECASE,
+)
+
+
+class _ApiClientCoreProtocol(Protocol):
+    """Protocol describing the attributes/methods mixins expect from the core.
+
+    Every mixin relies on ``self`` having these members at runtime.
+    This covers both core (ApiClientCore) and mixin-provided methods
+    that the final ApiClient class exposes via multiple inheritance.
+    """
+
+    config: ApiConfig
+    _session: requests.Session
+    _cache: ResponseCache | None
+
+    def _rate_limit(self, api_name: str, delay: float) -> None: ...
+
+    def _cached_get(self, key: str) -> Any | None: ...
+
+    def _cached_set(self, key: str, value: Any) -> None: ...
+
+    def clean_doi(self, doi: str) -> str: ...
+
+    def clean_url(self, url: str) -> str: ...
+
+    def clean_isbn(self, isbn: str) -> str: ...
+
+    def clean_arxiv(self, arxiv_id: str) -> str: ...
+
+    def fetch_crossref(self, doi: str) -> dict[str, Any] | None: ...
+
+    def doi_to_pmid(self, doi: str) -> str | None: ...
+
+    def _ncbi_params(self, **kwargs: str | None) -> dict[str, str | None]: ...
 
 
 class ApiClientCore:
@@ -123,7 +164,23 @@ class ApiClientCore:
     def is_valid_doi(doi: str) -> bool:
         return bool(_DOI_RE.match(doi.strip()))
 
+    @staticmethod
+    def _is_safe_url(url: str) -> bool:
+        """Reject private/reserved IP ranges to prevent SSRF.
+
+        Returns True when *url* is safe to probe externally.
+        """
+        try:
+            parsed = urllib.parse.urlparse(url)
+            host = parsed.hostname or ""
+            return not bool(_PRIVATE_HOSTS.match(host))
+        except Exception:
+            return False
+
     def head_url(self, url: str) -> int | None:
+        if not self._is_safe_url(url):
+            log.debug("  Skipping unsafe HEAD probe: %s", url)
+            return None
         try:
             resp = self._session.head(url, timeout=10, allow_redirects=True)
             return resp.status_code

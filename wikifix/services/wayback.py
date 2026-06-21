@@ -1,10 +1,10 @@
-# mypy: disable-error-code="attr-defined"
 """Wayback Machine API mixin: check and save URL snapshots."""
 
 from typing import cast
 
 from wikifix.cache import ResponseCache
 from wikifix.logger import get_logger
+from wikifix.services.base import _ApiClientCoreProtocol
 
 log = get_logger()
 
@@ -15,7 +15,7 @@ class WaybackMixin:
     Requires self._session, _rate_limit, _cached_get/set, clean_url.
     """
 
-    def check_wayback(self, url: str) -> tuple[str, str] | None:
+    def check_wayback(self: _ApiClientCoreProtocol, url: str) -> tuple[str, str] | None:
         url = self.clean_url(url)
         cache_key = ResponseCache.make_key("wayback", "check", url)
         cached = self._cached_get(cache_key)
@@ -42,7 +42,7 @@ class WaybackMixin:
             log.warning("  Wayback Machine check failed for %s: %s", url, e)
         return None
 
-    def save_wayback(self, url: str) -> bool:
+    def save_wayback(self: _ApiClientCoreProtocol, url: str) -> bool:
         self._rate_limit("wayback", self.config.wayback_delay * 5)
         url = self.clean_url(url)
         try:
@@ -53,7 +53,7 @@ class WaybackMixin:
             )
             if resp.status_code == 429:
                 log.warning("    Wayback rate-limited (429), skipping save")
-            return cast(bool, resp.ok)
+            return resp.ok
         except Exception as e:
             log.warning("  Wayback Machine save failed for %s: %s", url, e)
         return False

@@ -1,14 +1,13 @@
 import requests_mock
 
 from wikifix.config import ApiConfig, Mode
+from wikifix.field_utils import add_field, has_field
 from wikifix.modules.expand import (
     ExpandModule,
-    _add_field,
     _clean_journal,
     _clean_publisher,
     _format_date_from_parts,
     _format_date_string,
-    _has_field,
 )
 from wikifix.services import ApiClient
 
@@ -37,21 +36,21 @@ def _make_context(overrides=None):
 
 class TestExpandHelpers:
     def test_has_field_true(self):
-        assert _has_field(" | doi = 10.1000/xyz", "doi")
+        assert has_field(" | doi = 10.1000/xyz", "doi")
 
     def test_has_field_false(self):
-        assert not _has_field(" | title = Foo", "doi")
+        assert not has_field(" | title = Foo", "doi")
 
     def test_add_field_new(self):
-        result = _add_field(" | title = Foo", "doi", "10.1000/xyz")
+        result = add_field(" | title = Foo", "doi", "10.1000/xyz")
         assert "doi=10.1000/xyz" in result
 
     def test_add_field_skip_when_exists(self):
-        result = _add_field(" | doi = 10.1000/old", "doi", "10.1000/new")
+        result = add_field(" | doi = 10.1000/old", "doi", "10.1000/new")
         assert "10.1000/old" in result
 
     def test_add_field_force_replace(self):
-        result = _add_field(" | doi = 10.1000/old", "doi", "10.1000/new", force=True)
+        result = add_field(" | doi = 10.1000/old", "doi", "10.1000/new", force=True)
         assert "10.1000/new" in result
         assert "10.1000/old" not in result
 
@@ -117,14 +116,14 @@ class TestExpandHelpers:
         assert ExpandModule._container_field("cite thesis") == "journal"
 
     def test_extract_field_found(self):
-        from wikifix.modules.expand import _extract_field
+        from wikifix.field_utils import get_field
 
-        assert _extract_field(" | doi = 10.1000/xyz", "doi") == "10.1000/xyz"
+        assert get_field(" | doi = 10.1000/xyz", "doi") == "10.1000/xyz"
 
     def test_extract_field_missing(self):
-        from wikifix.modules.expand import _extract_field
+        from wikifix.field_utils import get_field
 
-        assert _extract_field(" | title = Foo", "doi") is None
+        assert get_field(" | title = Foo", "doi") is None
 
 
 class TestExpandModule:

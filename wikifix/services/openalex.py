@@ -1,10 +1,10 @@
-# mypy: disable-error-code="attr-defined"
 """OpenAlex API mixin: DOI→authors, DOI→QID."""
 
 from typing import cast
 
 from wikifix.cache import ResponseCache
 from wikifix.logger import get_logger
+from wikifix.services.base import _ApiClientCoreProtocol
 
 log = get_logger()
 
@@ -15,7 +15,9 @@ class OpenAlexMixin:
     Requires self._session, _rate_limit, _cached_get/set, clean_doi.
     """
 
-    def doi_to_authors_openalex(self, doi: str) -> list[tuple[str, str]]:
+    def doi_to_authors_openalex(
+        self: _ApiClientCoreProtocol, doi: str
+    ) -> list[tuple[str, str]]:
         doi = self.clean_doi(doi)
         cache_key = ResponseCache.make_key("openalex", "authors", doi)
         cached = self._cached_get(cache_key)
@@ -51,7 +53,7 @@ class OpenAlexMixin:
             log.warning("  OpenAlex fetch failed for DOI %s: %s", doi, e)
         return []
 
-    def doi_to_qid(self, doi: str) -> str | None:
+    def doi_to_qid(self: _ApiClientCoreProtocol, doi: str) -> str | None:
         doi = self.clean_doi(doi)
         cache_key = ResponseCache.make_key("openalex", "qid", doi)
         cached = self._cached_get(cache_key)

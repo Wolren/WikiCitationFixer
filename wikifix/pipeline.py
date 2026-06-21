@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 import threading
 import urllib.parse
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
@@ -159,14 +160,17 @@ class CitationPipeline:
             m.group(1) for m in re.finditer(r'<ref\s+name\s*=\s*"([^"]*)"', text)
         )
 
-        # Parallel processing
-        sorted_matches = list(enumerate(reversed(matches)))
+        # Parallel processing (bounded by semaphore to avoid unbounded queue)
+        sorted_matches = list(enumerate(matches))
         results: list[_ProcessResult | None] = [None] * len(matches)
         stats_lock = threading.Lock()
+        submit_sem = threading.Semaphore(self.api.config.max_workers * 2)
 
         with ThreadPoolExecutor(max_workers=self.api.config.max_workers) as pool:
             fut_map: dict[Any, dict[str, Any]] = {}
+
             for sorted_idx, match in sorted_matches:
+                submit_sem.acquire()
                 title = self._extract_title(match.group(1))
                 log.info("  Queuing [%d/%d] %s...", sorted_idx + 1, len(matches), title)
                 fut = pool.submit(self._process_one, match, first_seen)
@@ -196,6 +200,7 @@ class CitationPipeline:
                     )
                     result = None
                 results[sorted_idx] = result
+                submit_sem.release()
                 if result is None:
                     log.warning(
                         "  No result for [%d/%d] %s",
@@ -211,7 +216,9 @@ class CitationPipeline:
                             1 if v else 0
                         )
 
-        # Sequential patch-back (reverse order preserves offsets)
+        # Segment-based patch-back (O(L) instead of O(N*L))
+        segments: list[str] = []
+        cursor = 0
         for sorted_idx, match in sorted_matches:
             result = results[sorted_idx]
             if result is None:
@@ -225,51 +232,86 @@ class CitationPipeline:
             # Strip ISSN when DOI present
             if self.strip_issn and re.search(r"\|\s*doi\s*=", body):
                 body = re.sub(r"\|\s*issn\s*=[^\|}]+", "", body)
-            # Patch back into source
-            text = (
-                text[: match.start()]
-                + "{{"
-                + result.template_type
-                + body
-                + "}}"
-                + text[match.end() :]
-            )
+            # Append text since last match + the new citation
+            segments.append(text[cursor : match.start()])
+            segments.append("{{")
+            segments.append(result.template_type)
+            segments.append(body)
+            segments.append("}}")
+            cursor = match.end()
             if any(result.changes.values()):
                 changed = ", ".join(k for k, v in result.changes.items() if v)
                 log.info("  -> %s", changed)
+        segments.append(text[cursor:])
+        text = "".join(segments)
 
-        # Ref names added sequentially (uses shared used_ref_names)
+        # Build new match offsets for ref-name pass by re-scanning
         if self.ref_names:
-            for sorted_idx, match in sorted_matches:
-                result = results[sorted_idx]
-                if result is None:
+            new_matches = list(self.CITATION_RE.finditer(text))
+            ref_ops: list[tuple[int, str, int, str | None]] = []
+            for sorted_idx, (orig_idx, _) in enumerate(sorted_matches):
+                result = results[orig_idx]
+                if result is None or sorted_idx >= len(new_matches):
                     continue
-                text = self._add_ref_name(
-                    text,
-                    match.start(),
-                    result.body,
-                    result.template_type,
-                    used_ref_names,
-                    ref_renames,
-                    existing=result.ref_name,
+                pos = new_matches[sorted_idx].start()
+                existing_name, ref_tag = CitationPipeline._find_existing_ref_name(
+                    text, pos, result.ref_name
                 )
+                if not ref_tag:
+                    continue
+                if existing_name is not None and not existing_name.startswith(":"):
+                    name = CitationPipeline._extract_first_author(result.body)
+                    year = CitationPipeline._extract_ref_year(result.body)
+                    if not (name and year and existing_name == name):
+                        continue
+                name = CitationPipeline._extract_first_author(result.body)
+                year = CitationPipeline._extract_ref_year(result.body)
+                if name and year:
+                    ref_name = f"{name}{year}"
+                elif name:
+                    ref_name = name
+                else:
+                    fallback = CitationPipeline._generate_fallback_ref_name(
+                        result.body, result.template_type
+                    )
+                    if not fallback:
+                        continue
+                    ref_name = fallback
+                if ref_name.isdigit():
+                    ref_name = f"ref-{ref_name}"
+                ref_name = CitationPipeline._unique_ref_name(ref_name, used_ref_names)
+                used_ref_names.add(ref_name)
+                ref_ops.append((pos, ref_name, len(ref_tag), existing_name))
+
+            # Apply ref name insertions/updates in reverse order
+            for pos, ref_name, tag_len, existing_name in reversed(ref_ops):
+                if existing_name:
+                    text = text.replace(
+                        f'name="{existing_name}"', f'name="{ref_name}"', 1
+                    )
+                    if existing_name != ref_name:
+                        ref_renames[existing_name] = ref_name
+                else:
+                    text = (
+                        text[: pos - tag_len] + f'<ref name="{ref_name}">' + text[pos:]
+                    )
 
         # Final pass: apply all ref renames globally
         for old_name, new_name in ref_renames.items():
             escaped = re.escape(old_name)
             text = re.sub(
                 rf'<ref\s+name\s*=\s*"{escaped}"\s*(/?>|>)',
-                lambda m: f'<ref name="{new_name}"{m.group(1)}',
+                self._make_ref_rename(new_name),
                 text,
             )
             text = re.sub(
                 rf"<ref\s+name\s*=\s*'{escaped}'\s*(/?>|>)",
-                lambda m: f'<ref name="{new_name}"{m.group(1)}',
+                self._make_ref_rename(new_name),
                 text,
             )
             text = re.sub(
                 rf"<ref\s+name\s*=\s*{escaped}(\s*/?>|>)",
-                lambda m: f'<ref name="{new_name}"{m.group(1)}',
+                self._make_ref_rename(new_name),
                 text,
             )
 
@@ -357,6 +399,15 @@ class CitationPipeline:
             if clean.lower() not in _STOPWORDS:
                 return clean.capitalize()
         return None
+
+    @staticmethod
+    def _make_ref_rename(new_name: str) -> Callable[[re.Match[str]], str]:
+        """Create a replacement callback for ref name global renames."""
+
+        def _repl(m: re.Match[str]) -> str:
+            return f'<ref name="{new_name}"{m.group(1)}'
+
+        return _repl
 
     @staticmethod
     def _apply_renames(body: str, renames: dict[str, str]) -> str:

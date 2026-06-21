@@ -1,10 +1,10 @@
-# mypy: disable-error-code="attr-defined"
 """Europe PMC API mixin: DOI→metadata, PMID→metadata."""
 
 from typing import Any, cast
 
 from wikifix.cache import ResponseCache
 from wikifix.logger import get_logger
+from wikifix.services.base import _ApiClientCoreProtocol
 
 log = get_logger()
 
@@ -15,7 +15,9 @@ class EuropePmcMixin:
     Requires self._session, _rate_limit, _cached_get/set, clean_doi.
     """
 
-    def fetch_europepmc(self, doi: str) -> dict[str, Any] | None:
+    def fetch_europepmc(
+        self: _ApiClientCoreProtocol, doi: str
+    ) -> dict[str, Any] | None:
         doi = self.clean_doi(doi)
         cache_key = ResponseCache.make_key("europepmc", "by_doi", doi)
         cached = self._cached_get(cache_key)
@@ -37,7 +39,9 @@ class EuropePmcMixin:
             log.warning("  Europe PMC fetch failed for DOI %s: %s", doi, e)
         return None
 
-    def pmid_to_metadata_europepmc(self, pmid: str) -> dict[str, Any] | None:
+    def pmid_to_metadata_europepmc(
+        self: _ApiClientCoreProtocol, pmid: str
+    ) -> dict[str, Any] | None:
         cache_key = ResponseCache.make_key("europepmc", "by_pmid", pmid)
         cached = self._cached_get(cache_key)
         if cached is not None:

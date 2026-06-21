@@ -1,4 +1,3 @@
-# mypy: disable-error-code="attr-defined"
 """arXiv API mixin: fetch metadata by arXiv ID."""
 
 import xml.etree.ElementTree as ET
@@ -6,6 +5,7 @@ from typing import Any, cast
 
 from wikifix.cache import ResponseCache
 from wikifix.logger import get_logger
+from wikifix.services.base import _ApiClientCoreProtocol
 
 log = get_logger()
 
@@ -16,7 +16,9 @@ class ArxivMixin:
     Requires self._session, _rate_limit, _cached_get/set, clean_arxiv.
     """
 
-    def fetch_arxiv(self, arxiv_id: str) -> dict[str, Any] | None:
+    def fetch_arxiv(
+        self: _ApiClientCoreProtocol, arxiv_id: str
+    ) -> dict[str, Any] | None:
         arxiv_id = self.clean_arxiv(arxiv_id)
         cache_key = ResponseCache.make_key("arxiv", "meta", arxiv_id)
         cached = self._cached_get(cache_key)

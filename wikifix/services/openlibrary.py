@@ -1,4 +1,3 @@
-# mypy: disable-error-code="attr-defined"
 """Open Library API mixin: fetch book metadata by ISBN."""
 
 import time
@@ -6,6 +5,7 @@ from typing import Any, cast
 
 from wikifix.cache import ResponseCache
 from wikifix.logger import get_logger
+from wikifix.services.base import _ApiClientCoreProtocol
 
 log = get_logger()
 
@@ -16,7 +16,9 @@ class OpenLibraryMixin:
     Requires self._session, _rate_limit, _cached_get/set, clean_isbn.
     """
 
-    def fetch_openlibrary(self, isbn: str) -> dict[str, Any] | None:
+    def fetch_openlibrary(
+        self: _ApiClientCoreProtocol, isbn: str
+    ) -> dict[str, Any] | None:
         isbn = self.clean_isbn(isbn)
         cache_key = ResponseCache.make_key("openlibrary", "book", isbn)
         cached = self._cached_get(cache_key)
